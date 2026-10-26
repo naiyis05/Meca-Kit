@@ -1,0 +1,14 @@
+{
+  "name": "mecakit",
+  "version": "1.0.0",
+  "description": "MecaKit — Sistema de gestión y control de inventario personal para estudiantes de Ingeniería Mecatrónica",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host --port 5173",
+    "build": "vite build",
+    "preview": "vite preview --port 4173"
+  },
+  "devDependencies": {
+    "vite": "^6.2.0"
+  }
+}

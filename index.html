@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html class="h-full" lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MecaKit — Inventario Personal de Ingeniería Mecatrónica</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Public+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <script>
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "notion-bg": "#FFFFFF",
+            "notion-sidebar": "#F7F7F5",
+            "notion-hover": "#EFEFED",
+            "notion-text": "#37352F",
+            "notion-muted": "#787774",
+            "notion-border": "#E9E9E7",
+            "notion-blue": "#2383E2",
+            "notion-blue-hover": "#1A6FC4"
+          },
+          fontFamily: {
+            headline: ["Inter", "sans-serif"],
+            body: ["Inter", "sans-serif"],
+            mono: ["JetBrains Mono", "monospace"]
+          }
+        }
+      }
+    };
+  </script>
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body class="bg-notion-bg text-notion-text font-body antialiased h-full flex flex-col overflow-hidden select-none">
+
+  <!-- TOP NAVIGATION BAR (Notion Breadcrumb & View Switcher) -->
+  <header class="flex justify-between items-center w-full px-4 md:px-6 py-2.5 bg-white border-b border-notion-border sticky top-0 z-30">
+    <div class="flex items-center gap-2 md:gap-4 min-w-0">
+      <!-- Mobile Sidebar Toggle -->
+      <button id="btn-mobile-menu" type="button" class="md:hidden p-1.5 rounded hover:bg-notion-hover text-notion-text" aria-label="Abrir menú de inventarios">
+        <span class="material-symbols-outlined">menu</span>
+      </button>
+
+      <!-- Workspace & Active Inventory Breadcrumb -->
+      <div class="flex items-center gap-2 min-w-0">
+        <span class="text-lg">⚙️</span>
+        <span class="font-headline text-sm md:text-base font-bold text-notion-text tracking-tight hidden sm:inline">MecaKit</span>
+        <span class="text-notion-muted hidden sm:inline">/</span>
+        <!-- Quick Inventory Dropdown for Mobile & Desktop -->
+        <div class="relative">
+          <select id="header-inventory-select" aria-label="Seleccionar inventario activo" class="text-xs md:text-sm font-semibold bg-notion-sidebar hover:bg-notion-hover border border-notion-border rounded px-2.5 py-1 pr-7 text-notion-text focus:outline-none focus:ring-1 focus:ring-notion-blue cursor-pointer">
+          </select>
+        </div>
+      </div>
+
+      <div class="h-4 w-[1px] bg-notion-border hidden lg:block mx-1"></div>
+
+      <!-- View Switcher Tabs -->
+      <nav class="hidden lg:flex items-center gap-4 font-headline text-xs" aria-label="Vistas de base de datos">
+        <button type="button" data-view="table" class="view-tab text-notion-blue border-b-2 border-notion-blue font-semibold pb-1 flex items-center gap-1.5 cursor-pointer">
+          <span class="material-symbols-outlined text-[16px]">table_rows</span>
+          <span>Vista Tabla</span>
+        </button>
+        <button type="button" data-view="gallery" class="view-tab text-notion-muted hover:text-notion-text pb-1 flex items-center gap-1.5 transition-colors cursor-pointer">
+          <span class="material-symbols-outlined text-[16px]">grid_view</span>
+          <span>Vista Tarjetas</span>
+        </button>
+        <button type="button" data-view="locations" class="view-tab text-notion-muted hover:text-notion-text pb-1 flex items-center gap-1.5 transition-colors cursor-pointer">
+          <span class="material-symbols-outlined text-[16px]">inventory_2</span>
+          <span>Por Ubicación Física</span>
+        </button>
+      </nav>
+    </div>
+
+    <!-- Right Top Actions -->
+    <div class="flex items-center gap-2">
+      <button id="btn-open-loan-modal-top" type="button" class="hidden sm:flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-notion-text bg-notion-sidebar hover:bg-notion-hover border border-notion-border transition-colors rounded cursor-pointer">
+        <span class="material-symbols-outlined text-[15px]">handshake</span>
+        <span>Prestar Pieza</span>
+      </button>
+
+      <button id="btn-new-component-top" type="button" class="bg-notion-blue hover:bg-notion-blue-hover text-white text-xs font-semibold px-3 py-1.5 rounded transition-all flex items-center gap-1.5 shadow-sm active:scale-95 cursor-pointer">
+        <span class="material-symbols-outlined text-[16px]">add</span>
+        <span>Anotar Componente</span>
+      </button>
+
+      <div class="hidden sm:flex items-center gap-2 ml-1 pl-2 border-l border-notion-border" title="Camilo — 5.º Semestre Ingeniería Mecatrónica">
+        <div class="w-7 h-7 rounded-full bg-[#DDEBF1] text-[#0B6E99] flex items-center justify-center font-bold text-xs">
+          C
+        </div>
+        <span class="text-xs font-medium text-notion-text hidden xl:inline">Camilo (5.º Sem)</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN 3-PANE NOTION WORKSPACE -->
+  <div class="flex-1 flex overflow-hidden relative">
+
+    <!-- MOBILE SIDEBAR BACKDROP -->
+    <div id="mobile-sidebar-backdrop" class="fixed inset-0 bg-black/30 z-30 hidden md:hidden"></div>
+
+    <!-- 1. LEFT SIDEBAR (Notion #F7F7F5 260px) -->
+    <aside id="left-sidebar" class="w-64 h-full flex flex-col justify-between p-3 border-r border-notion-border bg-notion-sidebar flex-shrink-0 fixed md:static inset-y-0 left-0 z-40 -translate-x-full md:translate-x-0 transition-transform duration-200">
+      <div class="flex flex-col gap-4 overflow-y-auto custom-scrollbar pr-0.5">
+        <!-- Student Profile Header -->
+        <div class="flex items-center justify-between p-1.5 rounded bg-white/70 border border-notion-border/80">
+          <div class="flex items-center gap-2 min-w-0">
+            <span class="text-xl">⚙️</span>
+            <div class="flex flex-col min-w-0">
+              <span class="font-headline text-xs font-bold text-notion-text tracking-tight truncate">MecaKit Personal</span>
+              <span class="text-[11px] text-notion-muted truncate">Camilo · Ing. Mecatrónica</span>
+            </div>
+          </div>
+          <button id="btn-close-sidebar-mobile" type="button" class="md:hidden p-1 text-notion-muted hover:text-notion-text" aria-label="Cerrar menú">
+            <span class="material-symbols-outlined text-[18px]">close</span>
+          </button>
+        </div>
+
+        <!-- Quick CTA: Anotar Componente -->
+        <button id="btn-sidebar-new-component" type="button" class="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-white border border-notion-border text-notion-text hover:bg-notion-hover rounded transition-all active:scale-[0.99] cursor-pointer">
+          <span class="material-symbols-outlined text-[16px] text-notion-blue">add_circle</span>
+          <span>Anotar Componente</span>
+        </button>
+
+        <!-- SECTION: MIS INVENTARIOS (PRD Req #5) -->
+        <div>
+          <div class="flex items-center justify-between px-2 pb-1">
+            <span class="text-[11px] font-semibold text-notion-muted uppercase tracking-wider">Mis Inventarios</span>
+            <button id="btn-new-inventory-icon" type="button" class="text-notion-muted hover:text-notion-text p-0.5 rounded hover:bg-notion-hover" title="Crear nuevo inventario por proyecto">
+              <span class="material-symbols-outlined text-[15px]">add</span>
+            </button>
+          </div>
+          <nav id="sidebar-inventories-list" class="space-y-0.5" aria-label="Lista de inventarios">
+            <!-- Renderizado dinámicamente -->
+          </nav>
+          <button id="btn-new-inventory" type="button" class="mt-1 w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-notion-muted hover:text-notion-text hover:bg-notion-hover rounded transition-colors cursor-pointer">
+            <span class="material-symbols-outlined text-[15px]">create_new_folder</span>
+            <span>+ Crear inventario de proyecto</span>
+          </button>
+        </div>
+
+        <!-- SECTION: FILTROS RÁPIDOS DE TALLER -->
+        <div>
+          <div class="px-2 pb-1 text-[11px] font-semibold text-notion-muted uppercase tracking-wider">
+            Control Rápido
+          </div>
+          <nav class="space-y-0.5">
+            <button type="button" id="nav-filter-all" class="w-full flex items-center justify-between px-2.5 py-1.5 text-xs text-notion-text hover:bg-notion-hover rounded transition-colors cursor-pointer">
+              <div class="flex items-center gap-2">
+                <span class="material-symbols-outlined text-[16px] text-notion-blue">layers</span>
+                <span>Todas las piezas</span>
+              </div>
+              <span id="sidebar-total-badge" class="text-[10px] font-mono bg-white border border-notion-border px-1.5 py-0.5 rounded">0</span>
+            </button>
+
+            <button type="button" id="nav-filter-agotados" class="w-full flex items-center justify-between px-2.5 py-1.5 text-xs text-notion-text hover:bg-notion-hover rounded transition-colors cursor-pointer">
+              <div class="flex items-center gap-2">
+                <span class="material-symbols-outlined text-[16px] text-[#E03E3E]">warning</span>
+                <span>Componentes Agotados</span>
+              </div>
+              <span id="sidebar-agotados-badge" class="text-[10px] font-mono bg-[#FBE4E4] text-[#E03E3E] px-1.5 py-0.5 rounded font-semibold">0</span>
+            </button>
+
+            <button type="button" id="nav-scroll-loans" class="w-full flex items-center justify-between px-2.5 py-1.5 text-xs text-notion-text hover:bg-notion-hover rounded transition-colors cursor-pointer">
+              <div class="flex items-center gap-2">
+                <span class="material-symbols-outlined text-[16px] text-[#8F6B00]">handshake</span>
+                <span>Seguimiento Préstamos</span>
+              </div>
+              <span id="sidebar-loans-badge" class="text-[10px] font-mono bg-[#FBF3DB] text-[#8F6B00] px-1.5 py-0.5 rounded font-semibold">0</span>
+            </button>
+          </nav>
+        </div>
+
+        <!-- SECTION: CATEGORÍAS DEL PRD + PERSONALIZADAS -->
+        <div>
+          <div class="flex items-center justify-between px-2 pb-1">
+            <span class="text-[11px] font-semibold text-notion-muted uppercase tracking-wider">Por Categoría</span>
+            <button id="btn-new-category-icon" type="button" class="text-notion-muted hover:text-notion-text p-0.5 rounded hover:bg-notion-hover cursor-pointer" title="Añadir nueva categoría (ej. Capacitores)">
+              <span class="material-symbols-outlined text-[15px]">add</span>
+            </button>
+          </div>
+          <nav id="sidebar-categories-list" class="space-y-0.5">
+            <!-- Renderizado dinámicamente -->
+          </nav>
+          <button id="btn-new-category-sidebar" type="button" class="mt-1 w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-notion-muted hover:text-notion-text hover:bg-notion-hover rounded transition-colors cursor-pointer">
+            <span class="material-symbols-outlined text-[15px]">new_label</span>
+            <span>+ Añadir categoría</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Sidebar Footer: Resumen & Reset Demo -->
+      <div class="pt-3 border-t border-notion-border space-y-2">
+        <div class="p-2.5 rounded bg-white border border-notion-border text-[11px] text-notion-muted flex flex-col gap-1">
+          <div class="flex justify-between items-center font-medium text-notion-text">
+            <span>📦 Unidades Totales</span>
+            <span id="sidebar-total-units" class="font-mono text-xs font-bold text-notion-blue">0 uds</span>
+          </div>
+          <p class="text-[10px] text-notion-muted leading-tight">
+            Guardado automáticamente en este dispositivo.
+          </p>
+        </div>
+        <button id="btn-reset-demo" type="button" class="w-full flex items-center justify-center gap-1.5 px-2 py-1 text-[11px] text-notion-muted hover:text-notion-text hover:bg-notion-hover rounded transition-colors cursor-pointer">
+          <span class="material-symbols-outlined text-[14px]">restart_alt</span>
+          <span>Restaurar datos de ejemplo</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- 2. MAIN WORKSPACE CANVAS (#FFFFFF) -->
+    <main id="main-canvas" class="flex-1 bg-white overflow-y-auto custom-scrollbar flex flex-col pb-20 md:pb-10">
+      <div class="max-w-6xl w-full mx-auto px-4 sm:px-6 md:px-8 pt-5 md:pt-8 pb-4">
+
+        <!-- NOTION PAGE HEADER -->
+        <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-4">
+          <div class="flex items-start gap-3.5">
+            <div id="active-inv-icon" class="w-12 h-12 md:w-14 md:h-14 rounded-lg bg-notion-sidebar flex items-center justify-center text-2xl md:text-3xl border border-notion-border flex-shrink-0">
+              📦
+            </div>
+            <div>
+              <div class="flex flex-wrap items-center gap-2">
+                <h1 id="active-inv-title" class="font-headline text-xl md:text-2xl font-bold text-notion-text tracking-tight">
+                  Inventario General
+                </h1>
+                <span id="active-inv-badge" class="px-2 py-0.5 rounded text-[11px] font-mono bg-[#DDEBF1] text-[#0B6E99] font-medium">
+                  Lab Mecatrónica #4
+                </span>
+                <button id="btn-edit-inventory" type="button" class="text-[11px] text-notion-muted hover:text-notion-text hover:bg-notion-hover border border-notion-border px-2 py-0.5 rounded transition-colors flex items-center gap-1 cursor-pointer" title="Renombrar o editar este inventario">
+                  <span class="material-symbols-outlined text-[13px]">edit</span>
+                  <span>Renombrar</span>
+                </button>
+                <button id="btn-delete-inventory" type="button" class="hidden text-[11px] text-[#E03E3E] hover:bg-[#FBE4E4] border border-[#F5C6C6] px-2 py-0.5 rounded transition-colors flex items-center gap-1 cursor-pointer" title="Eliminar este inventario de proyecto">
+                  <span class="material-symbols-outlined text-[13px]">delete</span>
+                  <span>Eliminar inventario</span>
+                </button>
+              </div>
+              <p id="active-inv-desc" class="text-xs md:text-sm text-notion-muted mt-1 leading-relaxed">
+                Consulta en segundos tus componentes electrónicos, ubicación física y préstamos activos de taller.
+              </p>
+            </div>
+          </div>
+
+          <!-- Mobile View Mode Switcher -->
+          <div class="flex lg:hidden items-center gap-1 self-start bg-notion-sidebar p-1 rounded border border-notion-border text-xs">
+            <button type="button" data-view="table" class="view-tab px-2.5 py-1 rounded font-medium bg-white text-notion-text shadow-sm">
+              Tabla
+            </button>
+            <button type="button" data-view="gallery" class="view-tab px-2.5 py-1 rounded font-medium text-notion-muted">
+              Tarjetas
+            </button>
+            <button type="button" data-view="locations" class="view-tab px-2.5 py-1 rounded font-medium text-notion-muted">
+              Cajas
+            </button>
+          </div>
+        </div>
+
+        <!-- KPI SUMMARY CALLOUT BLOCKS -->
+        <div class="grid grid-cols-3 gap-2.5 md:gap-3 my-4">
+          <button type="button" id="kpi-card-all" class="text-left p-2.5 md:p-3.5 rounded-lg border border-notion-border bg-white hover:bg-notion-sidebar/60 transition-colors cursor-pointer">
+            <div class="flex items-center justify-between text-[11px] md:text-xs text-notion-muted">
+              <span class="truncate">Referencias</span>
+              <span class="material-symbols-outlined text-[16px] text-notion-text hidden sm:inline">category</span>
+            </div>
+            <div class="flex items-baseline gap-1.5 mt-1">
+              <span id="kpi-total-refs" class="text-lg md:text-xl font-bold font-mono text-notion-text">0</span>
+              <span id="kpi-total-units" class="text-[10px] md:text-xs text-notion-muted truncate">0 uds</span>
+            </div>
+          </button>
+
+          <button type="button" id="kpi-card-agotados" class="text-left p-2.5 md:p-3.5 rounded-lg border border-[#F5C6C6] bg-[#FFF8F8] hover:bg-[#FBE4E4]/50 transition-colors cursor-pointer">
+            <div class="flex items-center justify-between text-[11px] md:text-xs text-[#E03E3E] font-medium">
+              <span class="truncate">Agotados (0)</span>
+              <span class="material-symbols-outlined text-[16px] hidden sm:inline">error</span>
+            </div>
+            <div class="flex items-baseline gap-1.5 mt-1">
+              <span id="kpi-total-agotados" class="text-lg md:text-xl font-bold font-mono text-[#E03E3E]">0</span>
+              <span class="text-[10px] md:text-xs text-[#E03E3E]/80 truncate">por comprar</span>
+            </div>
+          </button>
+
+          <button type="button" id="kpi-card-loans" class="text-left p-2.5 md:p-3.5 rounded-lg border border-[#F3E7C4] bg-[#FFFDF7] hover:bg-[#FBF3DB]/50 transition-colors cursor-pointer">
+            <div class="flex items-center justify-between text-[11px] md:text-xs text-[#8F6B00] font-medium">
+              <span class="truncate">Prestados</span>
+              <span class="material-symbols-outlined text-[16px] hidden sm:inline">handshake</span>
+            </div>
+            <div class="flex items-baseline gap-1.5 mt-1">
+              <span id="kpi-total-loans" class="text-lg md:text-xl font-bold font-mono text-[#8F6B00]">0</span>
+              <span class="text-[10px] md:text-xs text-[#8F6B00]/80 truncate">activos</span>
+            </div>
+          </button>
+        </div>
+
+        <!-- SEARCH & CATEGORY FILTER BAR (PRD Req #3) -->
+        <div class="border-b border-notion-border pb-3 mt-5 flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <!-- Instant Search Input -->
+          <div class="relative flex-1 max-w-md">
+            <span class="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-notion-muted text-[17px]">search</span>
+            <input
+              id="search-input"
+              type="search"
+              placeholder="Buscar por nombre, modelo o caja (ej. ESP32, HC-SR04, 10kΩ)..."
+              aria-label="Buscar componente por nombre, modelo o ubicación"
+              class="w-full pl-8 pr-8 py-1.5 text-xs bg-notion-sidebar/80 border border-notion-border rounded focus:bg-white focus:outline-none focus:ring-1 focus:ring-notion-blue text-notion-text placeholder:text-notion-muted transition-all"
+            />
+            <button id="btn-clear-search" type="button" class="hidden absolute right-2 top-1/2 -translate-y-1/2 text-notion-muted hover:text-notion-text" aria-label="Limpiar búsqueda">
+              <span class="material-symbols-outlined text-[15px]">close</span>
+            </button>
+          </div>
+
+          <!-- Category Filter Pills -->
+          <div id="category-pills-bar" class="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0 text-xs" role="group" aria-label="Filtrar por categoría">
+            <!-- Renderizado dinámicamente -->
+          </div>
+        </div>
+
+        <!-- INVENTORY VIEW CONTAINER (Table / Cards / Locations) -->
+        <div id="inventory-container" class="mt-4">
+          <!-- Renderizado dinámicamente por src/main.js -->
+        </div>
+
+        <!-- SECTION: SEGUIMIENTO DE PRÉSTAMOS A COMPAÑEROS (PRD Req #6) -->
+        <section id="loans-section" class="mt-10 mb-8 pt-6 border-t border-notion-border">
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <div class="flex items-center gap-2">
+              <span class="text-lg">🤝</span>
+              <h2 class="font-headline text-base font-bold text-notion-text tracking-tight">
+                Seguimiento de Préstamos a Compañeros
+              </h2>
+              <span id="loans-pending-pill" class="px-2 py-0.5 rounded-full text-[10px] font-mono bg-[#FBF3DB] text-[#8F6B00] font-bold">
+                0 PENDIENTES
+              </span>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <button id="btn-open-loan-modal-section" type="button" class="px-2.5 py-1 text-xs font-medium bg-notion-sidebar hover:bg-notion-hover border border-notion-border rounded text-notion-blue flex items-center gap-1 cursor-pointer">
+                <span class="material-symbols-outlined text-[15px]">add_circle</span>
+                <span>Registrar préstamo</span>
+              </button>
+            </div>
+          </div>
+
+          <div id="loans-container" class="border border-notion-border rounded-lg overflow-hidden bg-white">
+            <!-- Renderizado dinámicamente -->
+          </div>
+        </section>
+
+      </div>
+    </main>
+
+    <!-- 3. RIGHT SIDE-PEEK DRAWER: ANOTAR / EDITAR COMPONENTE (PRD Req #1) -->
+    <aside
+      id="side-peek-drawer"
+      aria-label="Panel para anotar o editar componente"
+      class="w-full sm:w-[400px] h-full bg-white border-l border-notion-border flex flex-col justify-between flex-shrink-0 shadow-lg md:shadow-sm fixed md:static inset-y-0 right-0 z-40 hidden"
+    >
+      <form id="component-form" class="h-full flex flex-col justify-between" novalidate>
+        <div class="overflow-y-auto custom-scrollbar flex-1">
+          <!-- Drawer Top Bar -->
+          <div class="flex items-center justify-between px-4 py-2.5 border-b border-notion-border bg-white sticky top-0 z-10">
+            <div class="flex items-center gap-1.5 text-notion-muted text-xs">
+              <span class="material-symbols-outlined text-[16px]">dock_to_right</span>
+              <span id="drawer-mode-label" class="font-medium">Anotar Componente</span>
+            </div>
+            <div class="flex items-center gap-1">
+              <button type="button" id="btn-delete-component" class="hidden px-2 py-1 rounded text-[11px] font-medium text-[#E03E3E] hover:bg-[#FBE4E4] transition-colors cursor-pointer">
+                Eliminar pieza
+              </button>
+              <button type="button" id="btn-close-drawer" class="p-1 rounded text-notion-muted hover:bg-notion-hover transition-colors cursor-pointer" title="Cerrar panel">
+                <span class="material-symbols-outlined text-[18px]">close</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Notion Page Properties Form -->
+          <div class="p-5 space-y-4">
+            <input type="hidden" id="comp-id" />
+
+            <!-- Nombre del Componente -->
+            <div>
+              <div class="flex items-center gap-1.5 mb-1">
+                <span id="drawer-category-emoji" class="text-xl">📡</span>
+                <label for="comp-name" class="text-[11px] font-semibold text-notion-blue uppercase tracking-wider">
+                  Nombre del Componente *
+                </label>
+              </div>
+              <input
+                id="comp-name"
+                name="comp-name"
+                type="text"
+                required
+                aria-errormessage="comp-name-error"
+                placeholder="Ej. Sensor Ultrasónico de Distancia"
+                class="w-full text-sm font-semibold text-notion-text border border-notion-border rounded px-2.5 py-1.5 bg-notion-sidebar/40 focus:bg-white focus:ring-1 focus:ring-notion-blue focus:outline-none"
+              />
+              <div id="comp-name-error" class="error-msg">
+                <span aria-hidden="true">❌</span> Ingresa el nombre del componente.
+              </div>
+            </div>
+
+            <!-- Notion Property Grid -->
+            <div class="border-t border-b border-notion-border py-3.5 space-y-3 text-xs">
+              <!-- Modelo / P/N -->
+              <div class="grid grid-cols-12 items-start gap-2">
+                <label for="comp-model" class="col-span-4 flex items-center gap-1.5 text-notion-muted pt-1.5">
+                  <span class="material-symbols-outlined text-[16px]">memory</span>
+                  <span>Modelo *</span>
+                </label>
+                <div class="col-span-8">
+                  <input
+                    id="comp-model"
+                    name="comp-model"
+                    type="text"
+                    required
+                    aria-errormessage="comp-model-error"
+                    placeholder="Ej. HC-SR04, ESP32, 10kΩ"
+                    class="w-full font-mono text-xs py-1.5 px-2.5 border border-notion-border rounded bg-notion-sidebar/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-notion-blue text-notion-text"
+                  />
+                  <div id="comp-model-error" class="error-msg">
+                    <span aria-hidden="true">❌</span> Ingresa el modelo o valor (ej. HC-SR04, 10kΩ).
+                  </div>
+                </div>
+              </div>
+
+              <!-- Categoría (Dinámica + Botón crear nueva categoría) -->
+              <div class="grid grid-cols-12 items-center gap-2">
+                <label for="comp-category" class="col-span-4 flex items-center gap-1.5 text-notion-muted">
+                  <span class="material-symbols-outlined text-[16px]">sell</span>
+                  <span>Categoría *</span>
+                </label>
+                <div class="col-span-8 flex items-center gap-1.5">
+                  <select
+                    id="comp-category"
+                    name="comp-category"
+                    required
+                    class="flex-1 text-xs py-1.5 px-2.5 border border-notion-border rounded bg-notion-sidebar/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-notion-blue text-notion-text font-medium"
+                  >
+                  </select>
+                  <button
+                    type="button"
+                    id="btn-drawer-new-category"
+                    title="Crear nueva categoría (ej. Capacitores)"
+                    class="px-2 py-1.5 text-xs font-medium bg-notion-sidebar hover:bg-notion-hover border border-notion-border rounded text-notion-blue flex items-center gap-0.5 flex-shrink-0 cursor-pointer"
+                  >
+                    <span class="material-symbols-outlined text-[14px]">add</span>
+                    <span>Nueva</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Inventario Perteneciente -->
+              <div class="grid grid-cols-12 items-center gap-2">
+                <label for="comp-inventory" class="col-span-4 flex items-center gap-1.5 text-notion-muted">
+                  <span class="material-symbols-outlined text-[16px]">folder</span>
+                  <span>Inventario *</span>
+                </label>
+                <div class="col-span-8">
+                  <select
+                    id="comp-inventory"
+                    name="comp-inventory"
+                    required
+                    class="w-full text-xs py-1.5 px-2.5 border border-notion-border rounded bg-notion-sidebar/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-notion-blue text-notion-text font-medium"
+                  >
+                  </select>
+                </div>
+              </div>
+
+              <!-- Cantidad Inicial / Stock -->
+              <div class="grid grid-cols-12 items-center gap-2">
+                <label for="comp-quantity" class="col-span-4 flex items-center gap-1.5 text-notion-muted">
+                  <span class="material-symbols-outlined text-[16px]">tag</span>
+                  <span>Cantidad *</span>
+                </label>
+                <div class="col-span-8 flex items-center gap-2">
+                  <div class="inline-flex items-center gap-1 bg-notion-sidebar border border-notion-border rounded p-0.5">
+                    <button type="button" id="drawer-qty-minus" class="w-6 h-6 rounded bg-white hover:bg-notion-hover border border-notion-border flex items-center justify-center font-bold text-xs cursor-pointer" aria-label="Disminuir cantidad">-</button>
+                    <input
+                      id="comp-quantity"
+                      name="comp-quantity"
+                      type="number"
+                      min="0"
+                      value="1"
+                      required
+                      class="w-12 text-center font-mono font-bold text-xs border-none bg-transparent p-0 focus:ring-0"
+                    />
+                    <button type="button" id="drawer-qty-plus" class="w-6 h-6 rounded bg-white hover:bg-notion-hover border border-notion-border flex items-center justify-center font-bold text-xs cursor-pointer" aria-label="Aumentar cantidad">+</button>
+                  </div>
+                  <span id="drawer-stock-status-pill" class="text-[11px] px-2 py-0.5 rounded font-medium bg-[#EDF3EC] text-[#0F7B6C]">
+                    Disponible
+                  </span>
+                </div>
+              </div>
+
+              <!-- Ubicación Física -->
+              <div class="grid grid-cols-12 items-start gap-2">
+                <label for="comp-location" class="col-span-4 flex items-center gap-1.5 text-notion-muted pt-1.5">
+                  <span class="material-symbols-outlined text-[16px]">pin_drop</span>
+                  <span>Ubicación *</span>
+                </label>
+                <div class="col-span-8">
+                  <input
+                    id="comp-location"
+                    name="comp-location"
+                    type="text"
+                    required
+                    aria-errormessage="comp-location-error"
+                    placeholder="Ej. Caja Sensores · Gaveta 2"
+                    class="w-full text-xs font-mono py-1.5 px-2.5 border border-notion-border rounded bg-notion-sidebar/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-notion-blue text-notion-text"
+                  />
+                  <div id="comp-location-error" class="error-msg">
+                    <span aria-hidden="true">❌</span> Indica en qué caja, bolsa o gaveta está guardado.
+                  </div>
+                </div>
+              </div>
+
+              <!-- Notas -->
+              <div class="grid grid-cols-12 items-start gap-2 pt-1">
+                <label for="comp-notes" class="col-span-4 flex items-center gap-1.5 text-notion-muted pt-1">
+                  <span class="material-symbols-outlined text-[16px]">notes</span>
+                  <span>Notas</span>
+                </label>
+                <div class="col-span-8">
+                  <textarea
+                    id="comp-notes"
+                    name="comp-notes"
+                    rows="2"
+                    placeholder="Especificaciones, voltaje, pines o detalles..."
+                    class="w-full text-xs py-1.5 px-2.5 border border-notion-border rounded bg-notion-sidebar/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-notion-blue text-notion-text resize-none"
+                  ></textarea>
+                </div>
+              </div>
+            </div>
+
+            <!-- Opción rápida: Prestar al instante -->
+            <div class="p-3 rounded-lg border border-notion-border bg-notion-sidebar/50 space-y-2.5">
+              <label class="flex items-center justify-between text-xs cursor-pointer">
+                <span class="font-medium text-notion-text flex items-center gap-1.5">
+                  <span class="material-symbols-outlined text-[16px] text-notion-blue">handshake</span>
+                  <span>¿Registrar préstamo inmediato?</span>
+                </span>
+                <input id="comp-instant-loan" type="checkbox" class="rounded border-notion-border text-notion-blue focus:ring-notion-blue h-4 w-4" />
+              </label>
+              <div id="instant-loan-fields" class="hidden space-y-2 pt-1 border-t border-notion-border">
+                <input
+                  id="comp-loan-borrower"
+                  type="text"
+                  placeholder="Nombre del compañero (ej. Mateo Ríos)"
+                  class="w-full text-xs py-1 px-2 border border-notion-border rounded bg-white text-notion-text"
+                />
+                <input
+                  id="comp-loan-group"
+                  type="text"
+                  placeholder="Materia o laboratorio (ej. Lab Robótica)"
+                  class="w-full text-xs py-1 px-2 border border-notion-border rounded bg-white text-notion-text"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Drawer Footer -->
+        <div class="p-3 border-t border-notion-border bg-white flex items-center justify-between gap-2">
+          <button type="button" id="btn-cancel-drawer" class="px-3 py-1.5 text-xs font-medium text-notion-muted hover:bg-notion-hover rounded transition-colors cursor-pointer">
+            Cancelar
+          </button>
+          <button type="submit" class="px-4 py-1.5 text-xs font-semibold bg-notion-blue hover:bg-notion-blue-hover text-white rounded transition-colors flex items-center gap-1.5 active:scale-95 cursor-pointer">
+            <span class="material-symbols-outlined text-[16px]">save</span>
+            <span>Guardar en MecaKit</span>
+          </button>
+        </div>
+      </form>
+    </aside>
+
+  </div>
+
+  <!-- MOBILE BOTTOM NAVIGATION BAR (PRD Mobile Experience) -->
+  <nav class="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-notion-border px-2 py-1.5 flex items-center justify-around z-30 text-[11px]" aria-label="Navegación móvil">
+    <button type="button" id="mob-nav-inventory" class="flex flex-col items-center gap-0.5 text-notion-blue font-semibold py-0.5 px-2">
+      <span class="material-symbols-outlined text-[20px]">inventory_2</span>
+      <span>Inventario</span>
+    </button>
+    <button type="button" id="mob-nav-projects" class="flex flex-col items-center gap-0.5 text-notion-muted hover:text-notion-text py-0.5 px-2">
+      <span class="material-symbols-outlined text-[20px]">folder_special</span>
+      <span>Inventarios</span>
+    </button>
+    <button type="button" id="mob-nav-loans" class="flex flex-col items-center gap-0.5 text-notion-muted hover:text-notion-text py-0.5 px-2">
+      <span class="material-symbols-outlined text-[20px]">handshake</span>
+      <span>Préstamos</span>
+    </button>
+    <button type="button" id="mob-nav-add" class="flex flex-col items-center gap-0.5 text-notion-blue font-semibold py-0.5 px-2">
+      <span class="material-symbols-outlined text-[20px]">add_box</span>
+      <span>Anotar Pieza</span>
+    </button>
+  </nav>
+
+  <!-- DIALOG 1: REGISTRAR PRÉSTAMO (Modern Web Guidance: light-dismiss-a-dialog) -->
+  <dialog id="loan-dialog" closedby="any" aria-labelledby="loan-dialog-title">
+    <form id="loan-form" class="p-5 space-y-4" novalidate>
+      <div class="flex items-center justify-between border-b border-notion-border pb-2.5">
+        <div class="flex items-center gap-2">
+          <span class="text-xl">🤝</span>
+          <h3 id="loan-dialog-title" class="font-headline text-sm font-bold text-notion-text">
+            Registrar Préstamo de Componente
+          </h3>
+        </div>
+        <button type="button" id="btn-close-loan-dialog" class="p-1 rounded text-notion-muted hover:bg-notion-hover" aria-label="Cerrar">
+          <span class="material-symbols-outlined text-[18px]">close</span>
+        </button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div>
+          <label for="loan-component-select" class="block font-medium text-notion-text mb-1">
+            Componente a prestar (con stock disponible) *
+          </label>
+          <select
+            id="loan-component-select"
+            required
+            aria-errormessage="loan-comp-error"
+            class="w-full text-xs py-1.5 px-2.5 border border-notion-border rounded bg-notion-sidebar/60 focus:bg-white focus:outline-none focus:ring-1 focus:ring-notion-blue"
+          >
+          </select>
+          <div id="loan-comp-error" class="error-msg">
+            <span aria-hidden="true">❌</span> Selecciona un componente con unidades disponibles.
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label for="loan-borrower-name" class="block font-medium text-notion-text mb-1">
+              Prestado a (Nombre) *
+            </label>
+            <input
+              id="loan-borrower-name"
+              type="text"
+              required
+              aria-errormessage="loan-borrower-error"
+              placeholder="Ej. Mateo Ríos"
+              class="w-full text-xs py-1.5 px-2.5 border border-notion-border rounded bg-notion-sidebar/60 focus:bg-white focus:outline-none focus:ring-1 focus:ring-notion-blue"
+            />
+            <div id="loan-borrower-error" class="error-msg">
+              <span aria-hidden="true">❌</span> Ingresa el nombre de la persona.
+            </div>
+          </div>
+
+          <div>
+            <label for="loan-borrower-group" class="block font-medium text-notion-text mb-1">
+              Curso / Referencia
+            </label>
+            <input
+              id="loan-borrower-group"
+              type="text"
+              placeholder="Ej. Lab Sensores · Gr. 3"
+              class="w-full text-xs py-1.5 px-2.5 border border-notion-border rounded bg-notion-sidebar/60 focus:bg-white focus:outline-none focus:ring-1 focus:ring-notion-blue"
+            />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label for="loan-quantity" class="block font-medium text-notion-text mb-1">
+              Unidades a prestar *
+            </label>
+            <input
+              id="loan-quantity"
+              type="number"
+              min="1"
+              value="1"
+              required
+              class="w-full font-mono text-xs py-1.5 px-2.5 border border-notion-border rounded bg-notion-sidebar/60 focus:bg-white focus:outline-none focus:ring-1 focus:ring-notion-blue"
+            />
+          </div>
+          <div>
+            <label for="loan-date" class="block font-medium text-notion-text mb-1">
+              Fecha del préstamo
+            </label>
+            <input
+              id="loan-date"
+              type="text"
+              value="Hoy"
+              class="w-full font-mono text-xs py-1.5 px-2.5 border border-notion-border rounded bg-notion-sidebar/60 focus:bg-white focus:outline-none focus:ring-1 focus:ring-notion-blue"
+            />
+          </div>
+        </div>
+
+        <p class="text-[11px] text-notion-muted bg-notion-sidebar p-2 rounded border border-notion-border">
+          💡 Al registrar el préstamo, MecaKit descontará automáticamente la unidad del stock disponible y la sumará de vuelta cuando la marques como devuelta.
+        </p>
+      </div>
+
+      <div class="flex items-center justify-end gap-2 pt-2 border-t border-notion-border">
+        <button type="button" id="btn-cancel-loan-dialog" class="px-3 py-1.5 text-xs font-medium text-notion-muted hover:bg-notion-hover rounded cursor-pointer">
+          Cancelar
+        </button>
+        <button type="submit" class="px-3.5 py-1.5 text-xs font-semibold bg-notion-blue hover:bg-notion-blue-hover text-white rounded cursor-pointer">
+          Confirmar Préstamo
+        </button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- DIALOG 2: CREAR O RENOMBRAR INVENTARIO POR PROYECTO (PRD Req #5) -->
+  <dialog id="inventory-dialog" closedby="any" aria-labelledby="inv-dialog-title">
+    <form id="inventory-form" class="p-5 space-y-4" novalidate>
+      <input type="hidden" id="inv-edit-id" />
+      <div class="flex items-center justify-between border-b border-notion-border pb-2.5">
+        <div class="flex items-center gap-2">
+          <span class="text-xl">🗂️</span>
+          <h3 id="inv-dialog-title" class="font-headline text-sm font-bold text-notion-text">
+            Crear Nuevo Inventario por Proyecto
+          </h3>
+        </div>
+        <button type="button" id="btn-close-inv-dialog" class="p-1 rounded text-notion-muted hover:bg-notion-hover" aria-label="Cerrar">
+          <span class="material-symbols-outlined text-[18px]">close</span>
+        </button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div class="grid grid-cols-4 gap-2">
+          <div class="col-span-1">
+            <label for="inv-icon" class="block font-medium text-notion-text mb-1">Ícono</label>
+            <select id="inv-icon" class="w-full text-base py-1 px-2 border border-notion-border rounded bg-notion-sidebar/60">
+              <option value="🤖">🤖</option>
+              <option value="🏎️">🏎️</option>
+              <option value="🦾">🦾</option>
+              <option value="🚁">🚁</option>
+              <option value="⚡">⚡</option>
+              <option value="📦">📦</option>
+              <option value="🛰️">🛰️</option>
+              <option value="🔧">🔧</option>
+            </select>
+          </div>
+          <div class="col-span-3">
+            <label for="inv-name" class="block font-medium text-notion-text mb-1">Nombre del Proyecto / Inventario *</label>
+            <input
+              id="inv-name"
+              type="text"
+              required
+              aria-errormessage="inv-name-error"
+              placeholder="Ej. Dron Cuadricóptero Lab Final"
+              class="w-full text-xs py-1.5 px-2.5 border border-notion-border rounded bg-notion-sidebar/60 focus:bg-white focus:outline-none focus:ring-1 focus:ring-notion-blue"
+            />
+            <div id="inv-name-error" class="error-msg">
+              <span aria-hidden="true">❌</span> Escribe un nombre para el inventario.
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <label for="inv-badge" class="block font-medium text-notion-text mb-1">Etiqueta / Materia</label>
+          <input
+            id="inv-badge"
+            type="text"
+            placeholder="Ej. Proyecto Final 5.º Semestre"
+            class="w-full text-xs py-1.5 px-2.5 border border-notion-border rounded bg-notion-sidebar/60 focus:bg-white focus:outline-none focus:ring-1 focus:ring-notion-blue"
+          />
+        </div>
+
+        <div>
+          <label for="inv-desc" class="block font-medium text-notion-text mb-1">Descripción corta</label>
+          <input
+            id="inv-desc"
+            type="text"
+            placeholder="Ej. Motores brushless, ESCs y sensores del proyecto."
+            class="w-full text-xs py-1.5 px-2.5 border border-notion-border rounded bg-notion-sidebar/60 focus:bg-white focus:outline-none focus:ring-1 focus:ring-notion-blue"
+          />
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-2 pt-2 border-t border-notion-border">
+        <button type="button" id="btn-cancel-inv-dialog" class="px-3 py-1.5 text-xs font-medium text-notion-muted hover:bg-notion-hover rounded cursor-pointer">
+          Cancelar
+        </button>
+        <button type="submit" id="btn-submit-inv-dialog" class="px-3.5 py-1.5 text-xs font-semibold bg-notion-blue hover:bg-notion-blue-hover text-white rounded cursor-pointer">
+          Guardar Inventario
+        </button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- DIALOG 3: AÑADIR NUEVA CATEGORÍA PERSONALIZADA (Ej. Capacitores) -->
+  <dialog id="category-dialog" closedby="any" aria-labelledby="cat-dialog-title">
+    <form id="category-form" class="p-5 space-y-4" novalidate>
+      <div class="flex items-center justify-between border-b border-notion-border pb-2.5">
+        <div class="flex items-center gap-2">
+          <span class="text-xl">🏷️</span>
+          <h3 id="cat-dialog-title" class="font-headline text-sm font-bold text-notion-text">
+            Crear Nueva Categoría
+          </h3>
+        </div>
+        <button type="button" id="btn-close-cat-dialog" class="p-1 rounded text-notion-muted hover:bg-notion-hover" aria-label="Cerrar">
+          <span class="material-symbols-outlined text-[18px]">close</span>
+        </button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div class="grid grid-cols-4 gap-2">
+          <div class="col-span-1">
+            <label for="cat-icon" class="block font-medium text-notion-text mb-1">Ícono</label>
+            <select id="cat-icon" class="w-full text-base py-1 px-2 border border-notion-border rounded bg-notion-sidebar/60">
+              <option value="🔋">🔋</option>
+              <option value="🔌">🔌</option>
+              <option value="🧲">🧲</option>
+              <option value="💡">💡</option>
+              <option value="🎛️">🎛️</option>
+              <option value="🔩">🔩</option>
+              <option value="📡">📡</option>
+              <option value="⚡">⚡</option>
+              <option value="🦾">🦾</option>
+              <option value="🔧">🔧</option>
+              <option value="📦">📦</option>
+            </select>
+          </div>
+          <div class="col-span-3">
+            <label for="cat-name" class="block font-medium text-notion-text mb-1">Nombre de la Categoría *</label>
+            <input
+              id="cat-name"
+              type="text"
+              required
+              aria-errormessage="cat-name-error"
+              placeholder="Ej. Capacitores, Conectores, Motores DC..."
+              class="w-full text-xs py-1.5 px-2.5 border border-notion-border rounded bg-notion-sidebar/60 focus:bg-white focus:outline-none focus:ring-1 focus:ring-notion-blue"
+            />
+            <div id="cat-name-error" class="error-msg">
+              <span aria-hidden="true">❌</span> Escribe el nombre de la categoría.
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <label for="cat-color" class="block font-medium text-notion-text mb-1">Color de etiqueta (Estilo Notion)</label>
+          <select
+            id="cat-color"
+            class="w-full text-xs py-1.5 px-2.5 border border-notion-border rounded bg-notion-sidebar/60 focus:bg-white focus:outline-none focus:ring-1 focus:ring-notion-blue font-medium"
+          >
+            <option value="teal">🟢 Turquesa Pastel</option>
+            <option value="pink">🌸 Rosa Pastel</option>
+            <option value="yellow">🟡 Ámbar Pastel</option>
+            <option value="blue">🔵 Azul Notion</option>
+            <option value="purple">🟣 Morado Pastel</option>
+            <option value="orange">🟠 Naranja Pastel</option>
+            <option value="green">🌿 Verde Salvia</option>
+            <option value="gray">⚪ Gris Neutro</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-2 pt-2 border-t border-notion-border">
+        <button type="button" id="btn-cancel-cat-dialog" class="px-3 py-1.5 text-xs font-medium text-notion-muted hover:bg-notion-hover rounded cursor-pointer">
+          Cancelar
+        </button>
+        <button type="submit" class="px-3.5 py-1.5 text-xs font-semibold bg-notion-blue hover:bg-notion-blue-hover text-white rounded cursor-pointer">
+          Añadir Categoría
+        </button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- DIALOG 4: CONFIRMACIÓN DE ELIMINACIÓN SEGURA -->
+  <dialog id="confirm-delete-dialog" closedby="any" aria-labelledby="confirm-delete-title">
+    <div class="p-5 space-y-4">
+      <div class="flex items-start gap-3">
+        <div class="w-9 h-9 rounded-lg bg-[#FBE4E4] text-[#E03E3E] flex items-center justify-center flex-shrink-0 text-lg">
+          ⚠️
+        </div>
+        <div class="flex-1">
+          <h3 id="confirm-delete-title" class="font-headline text-sm font-bold text-notion-text">
+            ¿Estás seguro de eliminar este elemento?
+          </h3>
+          <p id="confirm-delete-message" class="text-xs text-notion-muted mt-1 leading-relaxed">
+            Esta acción no se puede deshacer.
+          </p>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-2 pt-2 border-t border-notion-border">
+        <button type="button" id="btn-cancel-confirm-delete" class="px-3 py-1.5 text-xs font-medium text-notion-muted hover:bg-notion-hover rounded cursor-pointer">
+          No, conservar
+        </button>
+        <button type="button" id="btn-accept-confirm-delete" class="px-3.5 py-1.5 text-xs font-semibold bg-[#E03E3E] hover:bg-[#c53030] text-white rounded cursor-pointer">
+          Sí, eliminar definitivamente
+        </button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- TOAST NOTIFICATION (Notion subtle bottom-right toast) -->
+  <div id="toast-container" class="fixed bottom-16 md:bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none" aria-live="polite"></div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
