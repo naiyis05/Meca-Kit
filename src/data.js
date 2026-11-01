@@ -21,9 +21,11 @@ export const NOTION_TAG_COLORS = [
 ];
 
 export const INITIAL_STATE = {
+  activeScreen: "inventory", // 'inventory' | 'loans'
   activeInventoryId: "general",
   viewMode: "table", // 'table' | 'gallery' | 'locations'
   activeCategory: "Todos", // 'Todos' | category name | 'Agotados'
+  loanFilter: "Todos", // 'Todos' | 'Pendiente' | 'Devuelto'
   searchQuery: "",
   categories: structuredClone(DEFAULT_CATEGORIES),
   inventories: [

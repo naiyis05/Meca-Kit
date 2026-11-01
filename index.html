@@ -37,46 +37,41 @@
 </head>
 <body class="bg-notion-bg text-notion-text font-body antialiased h-full flex flex-col overflow-hidden select-none">
 
-  <!-- TOP NAVIGATION BAR (Notion Breadcrumb & View Switcher) -->
+  <!-- TOP NAVIGATION BAR (Sin selectores redundantes de inventario; usa menú ☰ en móvil) -->
   <header class="flex justify-between items-center w-full px-4 md:px-6 py-2.5 bg-white border-b border-notion-border sticky top-0 z-30">
-    <div class="flex items-center gap-2 md:gap-4 min-w-0">
-      <!-- Mobile Sidebar Toggle -->
-      <button id="btn-mobile-menu" type="button" class="md:hidden p-1.5 rounded hover:bg-notion-hover text-notion-text" aria-label="Abrir menú de inventarios">
+    <div class="flex items-center gap-2 md:gap-3 min-w-0">
+      <!-- Botón de 3 líneas (☰) para abrir el Menú Lateral en móvil -->
+      <button id="btn-mobile-menu" type="button" class="md:hidden p-1.5 rounded hover:bg-notion-hover text-notion-text cursor-pointer" aria-label="Abrir menú de inventarios">
         <span class="material-symbols-outlined">menu</span>
       </button>
 
-      <!-- Workspace & Active Inventory Breadcrumb -->
-      <div class="flex items-center gap-2 min-w-0">
-        <span class="text-lg">⚙️</span>
-        <span class="font-headline text-sm md:text-base font-bold text-notion-text tracking-tight hidden sm:inline">MecaKit</span>
+      <!-- Breadcrumb limpio estilo Notion (solo informativo, sin duplicar el selector de inventarios) -->
+      <div class="flex items-center gap-1.5 min-w-0 text-xs md:text-sm">
+        <span class="text-base md:text-lg">⚙️</span>
+        <span class="font-headline font-bold text-notion-text tracking-tight hidden sm:inline">MecaKit</span>
         <span class="text-notion-muted hidden sm:inline">/</span>
-        <!-- Quick Inventory Dropdown for Mobile & Desktop -->
-        <div class="relative">
-          <select id="header-inventory-select" aria-label="Seleccionar inventario activo" class="text-xs md:text-sm font-semibold bg-notion-sidebar hover:bg-notion-hover border border-notion-border rounded px-2.5 py-1 pr-7 text-notion-text focus:outline-none focus:ring-1 focus:ring-notion-blue cursor-pointer">
-          </select>
-        </div>
+        <span id="header-breadcrumb-current" class="font-semibold text-notion-text truncate max-w-[180px] sm:max-w-[260px]">
+          📦 Inventario General
+        </span>
       </div>
 
-      <div class="h-4 w-[1px] bg-notion-border hidden lg:block mx-1"></div>
+      <div class="h-4 w-[1px] bg-notion-border hidden md:block mx-1"></div>
 
-      <!-- View Switcher Tabs -->
-      <nav class="hidden lg:flex items-center gap-4 font-headline text-xs" aria-label="Vistas de base de datos">
-        <button type="button" data-view="table" class="view-tab text-notion-blue border-b-2 border-notion-blue font-semibold pb-1 flex items-center gap-1.5 cursor-pointer">
-          <span class="material-symbols-outlined text-[16px]">table_rows</span>
-          <span>Vista Tabla</span>
+      <!-- Navegación de Apartados Principales en Escritorio (Inventario vs Préstamos) -->
+      <nav class="hidden md:flex items-center gap-1 bg-notion-sidebar p-0.5 rounded border border-notion-border text-xs" aria-label="Apartados principales">
+        <button type="button" id="top-screen-inventory" class="px-2.5 py-1 rounded font-semibold bg-white text-notion-text shadow-sm flex items-center gap-1.5 cursor-pointer transition-all">
+          <span class="material-symbols-outlined text-[15px] text-notion-blue">inventory_2</span>
+          <span>Inventario</span>
         </button>
-        <button type="button" data-view="gallery" class="view-tab text-notion-muted hover:text-notion-text pb-1 flex items-center gap-1.5 transition-colors cursor-pointer">
-          <span class="material-symbols-outlined text-[16px]">grid_view</span>
-          <span>Vista Tarjetas</span>
-        </button>
-        <button type="button" data-view="locations" class="view-tab text-notion-muted hover:text-notion-text pb-1 flex items-center gap-1.5 transition-colors cursor-pointer">
-          <span class="material-symbols-outlined text-[16px]">inventory_2</span>
-          <span>Por Ubicación Física</span>
+        <button type="button" id="top-screen-loans" class="px-2.5 py-1 rounded font-medium text-notion-muted hover:text-notion-text flex items-center gap-1.5 cursor-pointer transition-all">
+          <span class="material-symbols-outlined text-[15px] text-[#8F6B00]">handshake</span>
+          <span>Préstamos</span>
+          <span id="top-loans-badge" class="text-[10px] font-mono bg-[#FBF3DB] text-[#8F6B00] px-1.5 py-0.2 rounded font-bold">0</span>
         </button>
       </nav>
     </div>
 
-    <!-- Right Top Actions -->
+    <!-- Acciones Principales a la Derecha -->
     <div class="flex items-center gap-2">
       <button id="btn-open-loan-modal-top" type="button" class="hidden sm:flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-notion-text bg-notion-sidebar hover:bg-notion-hover border border-notion-border transition-colors rounded cursor-pointer">
         <span class="material-symbols-outlined text-[15px]">handshake</span>
@@ -85,10 +80,11 @@
 
       <button id="btn-new-component-top" type="button" class="bg-notion-blue hover:bg-notion-blue-hover text-white text-xs font-semibold px-3 py-1.5 rounded transition-all flex items-center gap-1.5 shadow-sm active:scale-95 cursor-pointer">
         <span class="material-symbols-outlined text-[16px]">add</span>
-        <span>Anotar Componente</span>
+        <span class="hidden xs:inline">Anotar Componente</span>
+        <span class="xs:hidden">Anotar</span>
       </button>
 
-      <div class="hidden sm:flex items-center gap-2 ml-1 pl-2 border-l border-notion-border" title="Camilo — 5.º Semestre Ingeniería Mecatrónica">
+      <div class="hidden lg:flex items-center gap-2 ml-1 pl-2 border-l border-notion-border" title="Camilo — 5.º Semestre Ingeniería Mecatrónica">
         <div class="w-7 h-7 rounded-full bg-[#DDEBF1] text-[#0B6E99] flex items-center justify-center font-bold text-xs">
           C
         </div>
@@ -97,17 +93,17 @@
     </div>
   </header>
 
-  <!-- MAIN 3-PANE NOTION WORKSPACE -->
+  <!-- MAIN WORKSPACE -->
   <div class="flex-1 flex overflow-hidden relative">
 
     <!-- MOBILE SIDEBAR BACKDROP -->
     <div id="mobile-sidebar-backdrop" class="fixed inset-0 bg-black/30 z-30 hidden md:hidden"></div>
 
-    <!-- 1. LEFT SIDEBAR (Notion #F7F7F5 260px) -->
+    <!-- 1. MENÚ LATERAL (Simplificado: Mis Inventarios, Control Rápido y Unidades Totales) -->
     <aside id="left-sidebar" class="w-64 h-full flex flex-col justify-between p-3 border-r border-notion-border bg-notion-sidebar flex-shrink-0 fixed md:static inset-y-0 left-0 z-40 -translate-x-full md:translate-x-0 transition-transform duration-200">
-      <div class="flex flex-col gap-4 overflow-y-auto custom-scrollbar pr-0.5">
-        <!-- Student Profile Header -->
-        <div class="flex items-center justify-between p-1.5 rounded bg-white/70 border border-notion-border/80">
+      <div class="flex flex-col gap-5 overflow-y-auto custom-scrollbar pr-0.5">
+        <!-- Encabezado del Estudiante -->
+        <div class="flex items-center justify-between p-2 rounded bg-white border border-notion-border">
           <div class="flex items-center gap-2 min-w-0">
             <span class="text-xl">⚙️</span>
             <div class="flex flex-col min-w-0">
@@ -115,40 +111,34 @@
               <span class="text-[11px] text-notion-muted truncate">Camilo · Ing. Mecatrónica</span>
             </div>
           </div>
-          <button id="btn-close-sidebar-mobile" type="button" class="md:hidden p-1 text-notion-muted hover:text-notion-text" aria-label="Cerrar menú">
+          <button id="btn-close-sidebar-mobile" type="button" class="md:hidden p-1 text-notion-muted hover:text-notion-text cursor-pointer" aria-label="Cerrar menú">
             <span class="material-symbols-outlined text-[18px]">close</span>
           </button>
         </div>
 
-        <!-- Quick CTA: Anotar Componente -->
-        <button id="btn-sidebar-new-component" type="button" class="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-white border border-notion-border text-notion-text hover:bg-notion-hover rounded transition-all active:scale-[0.99] cursor-pointer">
-          <span class="material-symbols-outlined text-[16px] text-notion-blue">add_circle</span>
-          <span>Anotar Componente</span>
-        </button>
-
-        <!-- SECTION: MIS INVENTARIOS (PRD Req #5) -->
+        <!-- SECCIÓN 1: MIS INVENTARIOS Y SUS OPCIONES -->
         <div>
-          <div class="flex items-center justify-between px-2 pb-1">
+          <div class="flex items-center justify-between px-2 pb-1.5">
             <span class="text-[11px] font-semibold text-notion-muted uppercase tracking-wider">Mis Inventarios</span>
-            <button id="btn-new-inventory-icon" type="button" class="text-notion-muted hover:text-notion-text p-0.5 rounded hover:bg-notion-hover" title="Crear nuevo inventario por proyecto">
+            <button id="btn-new-inventory-icon" type="button" class="text-notion-muted hover:text-notion-text p-0.5 rounded hover:bg-notion-hover cursor-pointer" title="Crear nuevo inventario por proyecto">
               <span class="material-symbols-outlined text-[15px]">add</span>
             </button>
           </div>
           <nav id="sidebar-inventories-list" class="space-y-0.5" aria-label="Lista de inventarios">
             <!-- Renderizado dinámicamente -->
           </nav>
-          <button id="btn-new-inventory" type="button" class="mt-1 w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-notion-muted hover:text-notion-text hover:bg-notion-hover rounded transition-colors cursor-pointer">
+          <button id="btn-new-inventory" type="button" class="mt-1.5 w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-notion-blue font-medium hover:bg-notion-hover rounded transition-colors cursor-pointer">
             <span class="material-symbols-outlined text-[15px]">create_new_folder</span>
             <span>+ Crear inventario de proyecto</span>
           </button>
         </div>
 
-        <!-- SECTION: FILTROS RÁPIDOS DE TALLER -->
+        <!-- SECCIÓN 2: CONTROL RÁPIDO -->
         <div>
-          <div class="px-2 pb-1 text-[11px] font-semibold text-notion-muted uppercase tracking-wider">
+          <div class="px-2 pb-1.5 text-[11px] font-semibold text-notion-muted uppercase tracking-wider">
             Control Rápido
           </div>
-          <nav class="space-y-0.5">
+          <nav class="space-y-0.5" aria-label="Control rápido de stock">
             <button type="button" id="nav-filter-all" class="w-full flex items-center justify-between px-2.5 py-1.5 text-xs text-notion-text hover:bg-notion-hover rounded transition-colors cursor-pointer">
               <div class="flex items-center gap-2">
                 <span class="material-symbols-outlined text-[16px] text-notion-blue">layers</span>
@@ -164,44 +154,19 @@
               </div>
               <span id="sidebar-agotados-badge" class="text-[10px] font-mono bg-[#FBE4E4] text-[#E03E3E] px-1.5 py-0.5 rounded font-semibold">0</span>
             </button>
-
-            <button type="button" id="nav-scroll-loans" class="w-full flex items-center justify-between px-2.5 py-1.5 text-xs text-notion-text hover:bg-notion-hover rounded transition-colors cursor-pointer">
-              <div class="flex items-center gap-2">
-                <span class="material-symbols-outlined text-[16px] text-[#8F6B00]">handshake</span>
-                <span>Seguimiento Préstamos</span>
-              </div>
-              <span id="sidebar-loans-badge" class="text-[10px] font-mono bg-[#FBF3DB] text-[#8F6B00] px-1.5 py-0.5 rounded font-semibold">0</span>
-            </button>
           </nav>
-        </div>
-
-        <!-- SECTION: CATEGORÍAS DEL PRD + PERSONALIZADAS -->
-        <div>
-          <div class="flex items-center justify-between px-2 pb-1">
-            <span class="text-[11px] font-semibold text-notion-muted uppercase tracking-wider">Por Categoría</span>
-            <button id="btn-new-category-icon" type="button" class="text-notion-muted hover:text-notion-text p-0.5 rounded hover:bg-notion-hover cursor-pointer" title="Añadir nueva categoría (ej. Capacitores)">
-              <span class="material-symbols-outlined text-[15px]">add</span>
-            </button>
-          </div>
-          <nav id="sidebar-categories-list" class="space-y-0.5">
-            <!-- Renderizado dinámicamente -->
-          </nav>
-          <button id="btn-new-category-sidebar" type="button" class="mt-1 w-full flex items-center gap-2 px-2.5 py-1.5 text-xs text-notion-muted hover:text-notion-text hover:bg-notion-hover rounded transition-colors cursor-pointer">
-            <span class="material-symbols-outlined text-[15px]">new_label</span>
-            <span>+ Añadir categoría</span>
-          </button>
         </div>
       </div>
 
-      <!-- Sidebar Footer: Resumen & Reset Demo -->
+      <!-- SECCIÓN 3: UNIDADES TOTALES (Pie del Menú Lateral) -->
       <div class="pt-3 border-t border-notion-border space-y-2">
-        <div class="p-2.5 rounded bg-white border border-notion-border text-[11px] text-notion-muted flex flex-col gap-1">
+        <div class="p-3 rounded-lg bg-white border border-notion-border text-[11px] text-notion-muted flex flex-col gap-1">
           <div class="flex justify-between items-center font-medium text-notion-text">
             <span>📦 Unidades Totales</span>
             <span id="sidebar-total-units" class="font-mono text-xs font-bold text-notion-blue">0 uds</span>
           </div>
           <p class="text-[10px] text-notion-muted leading-tight">
-            Guardado automáticamente en este dispositivo.
+            Suma de todos tus inventarios guardada en este dispositivo.
           </p>
         </div>
         <button id="btn-reset-demo" type="button" class="w-full flex items-center justify-center gap-1.5 px-2 py-1 text-[11px] text-notion-muted hover:text-notion-text hover:bg-notion-hover rounded transition-colors cursor-pointer">
@@ -211,11 +176,15 @@
       </div>
     </aside>
 
-    <!-- 2. MAIN WORKSPACE CANVAS (#FFFFFF) -->
+    <!-- 2. LIENZO PRINCIPAL (#FFFFFF) CON PANTALLAS INDEPENDIENTES -->
     <main id="main-canvas" class="flex-1 bg-white overflow-y-auto custom-scrollbar flex flex-col pb-20 md:pb-10">
-      <div class="max-w-6xl w-full mx-auto px-4 sm:px-6 md:px-8 pt-5 md:pt-8 pb-4">
 
-        <!-- NOTION PAGE HEADER -->
+      <!-- =========================================================
+           PANTALLA A: VISTA DE INVENTARIO Y COMPONENTES (#screen-inventory)
+           ========================================================= -->
+      <div id="screen-inventory" class="max-w-6xl w-full mx-auto px-4 sm:px-6 md:px-8 pt-5 md:pt-8 pb-4">
+
+        <!-- ENCABEZADO DEL INVENTARIO ACTIVO -->
         <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-4">
           <div class="flex items-start gap-3.5">
             <div id="active-inv-icon" class="w-12 h-12 md:w-14 md:h-14 rounded-lg bg-notion-sidebar flex items-center justify-center text-2xl md:text-3xl border border-notion-border flex-shrink-0">
@@ -239,26 +208,29 @@
                 </button>
               </div>
               <p id="active-inv-desc" class="text-xs md:text-sm text-notion-muted mt-1 leading-relaxed">
-                Consulta en segundos tus componentes electrónicos, ubicación física y préstamos activos de taller.
+                Consulta en segundos tus componentes electrónicos y su ubicación física en taller.
               </p>
             </div>
           </div>
 
-          <!-- Mobile View Mode Switcher -->
-          <div class="flex lg:hidden items-center gap-1 self-start bg-notion-sidebar p-1 rounded border border-notion-border text-xs">
-            <button type="button" data-view="table" class="view-tab px-2.5 py-1 rounded font-medium bg-white text-notion-text shadow-sm">
-              Tabla
+          <!-- Selector de Vista de Base de Datos (Tabla / Tarjetas / Cajas) -->
+          <div class="flex items-center gap-1 self-start bg-notion-sidebar p-1 rounded border border-notion-border text-xs">
+            <button type="button" data-view="table" class="view-tab px-2.5 py-1 rounded font-semibold bg-white text-notion-text shadow-sm flex items-center gap-1 cursor-pointer">
+              <span class="material-symbols-outlined text-[15px]">table_rows</span>
+              <span>Tabla</span>
             </button>
-            <button type="button" data-view="gallery" class="view-tab px-2.5 py-1 rounded font-medium text-notion-muted">
-              Tarjetas
+            <button type="button" data-view="gallery" class="view-tab px-2.5 py-1 rounded font-medium text-notion-muted hover:text-notion-text flex items-center gap-1 cursor-pointer">
+              <span class="material-symbols-outlined text-[15px]">grid_view</span>
+              <span>Tarjetas</span>
             </button>
-            <button type="button" data-view="locations" class="view-tab px-2.5 py-1 rounded font-medium text-notion-muted">
-              Cajas
+            <button type="button" data-view="locations" class="view-tab px-2.5 py-1 rounded font-medium text-notion-muted hover:text-notion-text flex items-center gap-1 cursor-pointer">
+              <span class="material-symbols-outlined text-[15px]">inventory_2</span>
+              <span>Cajas</span>
             </button>
           </div>
         </div>
 
-        <!-- KPI SUMMARY CALLOUT BLOCKS -->
+        <!-- TARJETAS KPI RESUMEN -->
         <div class="grid grid-cols-3 gap-2.5 md:gap-3 my-4">
           <button type="button" id="kpi-card-all" class="text-left p-2.5 md:p-3.5 rounded-lg border border-notion-border bg-white hover:bg-notion-sidebar/60 transition-colors cursor-pointer">
             <div class="flex items-center justify-between text-[11px] md:text-xs text-notion-muted">
@@ -282,21 +254,21 @@
             </div>
           </button>
 
-          <button type="button" id="kpi-card-loans" class="text-left p-2.5 md:p-3.5 rounded-lg border border-[#F3E7C4] bg-[#FFFDF7] hover:bg-[#FBF3DB]/50 transition-colors cursor-pointer">
+          <button type="button" id="kpi-card-loans" class="text-left p-2.5 md:p-3.5 rounded-lg border border-[#F3E7C4] bg-[#FFFDF7] hover:bg-[#FBF3DB]/50 transition-colors cursor-pointer" title="Ir al apartado de Seguimiento de Préstamos">
             <div class="flex items-center justify-between text-[11px] md:text-xs text-[#8F6B00] font-medium">
-              <span class="truncate">Prestados</span>
+              <span class="truncate">Ver Préstamos →</span>
               <span class="material-symbols-outlined text-[16px] hidden sm:inline">handshake</span>
             </div>
             <div class="flex items-baseline gap-1.5 mt-1">
               <span id="kpi-total-loans" class="text-lg md:text-xl font-bold font-mono text-[#8F6B00]">0</span>
-              <span class="text-[10px] md:text-xs text-[#8F6B00]/80 truncate">activos</span>
+              <span class="text-[10px] md:text-xs text-[#8F6B00]/80 truncate">pendientes</span>
             </div>
           </button>
         </div>
 
-        <!-- SEARCH & CATEGORY FILTER BAR (PRD Req #3) -->
+        <!-- BARRA DE BÚSQUEDA Y PÍLDORAS DE CATEGORÍA (PRD Req #3) -->
         <div class="border-b border-notion-border pb-3 mt-5 flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <!-- Instant Search Input -->
+          <!-- Buscador Instantáneo -->
           <div class="relative flex-1 max-w-md">
             <span class="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-notion-muted text-[17px]">search</span>
             <input
@@ -306,49 +278,111 @@
               aria-label="Buscar componente por nombre, modelo o ubicación"
               class="w-full pl-8 pr-8 py-1.5 text-xs bg-notion-sidebar/80 border border-notion-border rounded focus:bg-white focus:outline-none focus:ring-1 focus:ring-notion-blue text-notion-text placeholder:text-notion-muted transition-all"
             />
-            <button id="btn-clear-search" type="button" class="hidden absolute right-2 top-1/2 -translate-y-1/2 text-notion-muted hover:text-notion-text" aria-label="Limpiar búsqueda">
+            <button id="btn-clear-search" type="button" class="hidden absolute right-2 top-1/2 -translate-y-1/2 text-notion-muted hover:text-notion-text cursor-pointer" aria-label="Limpiar búsqueda">
               <span class="material-symbols-outlined text-[15px]">close</span>
             </button>
           </div>
 
-          <!-- Category Filter Pills -->
+          <!-- Píldoras de Categoría + Botón para crear/gestionar categorías -->
           <div id="category-pills-bar" class="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0 text-xs" role="group" aria-label="Filtrar por categoría">
             <!-- Renderizado dinámicamente -->
           </div>
         </div>
 
-        <!-- INVENTORY VIEW CONTAINER (Table / Cards / Locations) -->
+        <!-- LISTA / TABLA DE COMPONENTES DEL INVENTARIO -->
         <div id="inventory-container" class="mt-4">
           <!-- Renderizado dinámicamente por src/main.js -->
         </div>
 
-        <!-- SECTION: SEGUIMIENTO DE PRÉSTAMOS A COMPAÑEROS (PRD Req #6) -->
-        <section id="loans-section" class="mt-10 mb-8 pt-6 border-t border-notion-border">
-          <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
-            <div class="flex items-center gap-2">
-              <span class="text-lg">🤝</span>
-              <h2 class="font-headline text-base font-bold text-notion-text tracking-tight">
-                Seguimiento de Préstamos a Compañeros
-              </h2>
-              <span id="loans-pending-pill" class="px-2 py-0.5 rounded-full text-[10px] font-mono bg-[#FBF3DB] text-[#8F6B00] font-bold">
-                0 PENDIENTES
-              </span>
-            </div>
+      </div>
 
-            <div class="flex items-center gap-2">
-              <button id="btn-open-loan-modal-section" type="button" class="px-2.5 py-1 text-xs font-medium bg-notion-sidebar hover:bg-notion-hover border border-notion-border rounded text-notion-blue flex items-center gap-1 cursor-pointer">
-                <span class="material-symbols-outlined text-[15px]">add_circle</span>
-                <span>Registrar préstamo</span>
-              </button>
+      <!-- =========================================================
+           PANTALLA B: APARTADO INDEPENDIENTE DE PRÉSTAMOS (#screen-loans)
+           ========================================================= -->
+      <div id="screen-loans" class="hidden max-w-6xl w-full mx-auto px-4 sm:px-6 md:px-8 pt-5 md:pt-8 pb-8">
+
+        <!-- ENCABEZADO DE LA PANTALLA DE PRÉSTAMOS -->
+        <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-4 mb-5">
+          <div class="flex items-start gap-3.5">
+            <div class="w-12 h-12 md:w-14 md:h-14 rounded-lg bg-[#FFFDF7] border border-[#F3E7C4] flex items-center justify-center text-2xl md:text-3xl flex-shrink-0">
+              🤝
+            </div>
+            <div>
+              <div class="flex flex-wrap items-center gap-2">
+                <h1 class="font-headline text-xl md:text-2xl font-bold text-notion-text tracking-tight">
+                  Seguimiento de Préstamos
+                </h1>
+                <span id="loans-pending-pill" class="px-2 py-0.5 rounded-full text-[11px] font-mono bg-[#FBF3DB] text-[#8F6B00] font-bold">
+                  0 PENDIENTES
+                </span>
+              </div>
+              <p class="text-xs md:text-sm text-notion-muted mt-1 leading-relaxed">
+                Lleva el control de los componentes que prestas a compañeros de laboratorio y restituye el stock cuando te los devuelvan.
+              </p>
             </div>
           </div>
 
-          <div id="loans-container" class="border border-notion-border rounded-lg overflow-hidden bg-white">
-            <!-- Renderizado dinámicamente -->
+          <div class="flex items-center gap-2 self-start">
+            <button id="btn-back-to-inventory" type="button" class="px-3 py-1.5 text-xs font-medium bg-notion-sidebar hover:bg-notion-hover border border-notion-border rounded text-notion-text flex items-center gap-1 cursor-pointer">
+              <span class="material-symbols-outlined text-[15px]">arrow_back</span>
+              <span>Volver al inventario</span>
+            </button>
+            <button id="btn-open-loan-modal-section" type="button" class="px-3 py-1.5 text-xs font-semibold bg-notion-blue hover:bg-notion-blue-hover text-white rounded flex items-center gap-1.5 shadow-sm cursor-pointer">
+              <span class="material-symbols-outlined text-[15px]">add_circle</span>
+              <span>Registrar préstamo</span>
+            </button>
           </div>
-        </section>
+        </div>
+
+        <!-- RESUMEN KPI DE PRÉSTAMOS -->
+        <div class="grid grid-cols-3 gap-2.5 md:gap-3 my-4">
+          <div class="p-3 rounded-lg border border-[#F3E7C4] bg-[#FFFDF7]">
+            <div class="text-[11px] md:text-xs text-[#8F6B00] font-medium">Préstamos Activos</div>
+            <div class="flex items-baseline gap-1.5 mt-1">
+              <span id="loans-kpi-active" class="text-lg md:text-xl font-bold font-mono text-[#8F6B00]">0</span>
+              <span class="text-[10px] md:text-xs text-[#8F6B00]/80">por devolver</span>
+            </div>
+          </div>
+
+          <div class="p-3 rounded-lg border border-notion-border bg-white">
+            <div class="text-[11px] md:text-xs text-notion-muted font-medium">Unidades Fuera</div>
+            <div class="flex items-baseline gap-1.5 mt-1">
+              <span id="loans-kpi-units" class="text-lg md:text-xl font-bold font-mono text-notion-text">0</span>
+              <span class="text-[10px] md:text-xs text-notion-muted">piezas prestadas</span>
+            </div>
+          </div>
+
+          <div class="p-3 rounded-lg border border-[#D3EFEE] bg-[#F5FBF9]">
+            <div class="text-[11px] md:text-xs text-[#0F7B6C] font-medium">Devueltos al Taller</div>
+            <div class="flex items-baseline gap-1.5 mt-1">
+              <span id="loans-kpi-returned" class="text-lg md:text-xl font-bold font-mono text-[#0F7B6C]">0</span>
+              <span class="text-[10px] md:text-xs text-[#0F7B6C]/80">completados</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- FILTROS DE ESTADO DE PRÉSTAMO -->
+        <div class="border-b border-notion-border pb-3 mt-4 flex items-center justify-between gap-2">
+          <div id="loan-filter-pills" class="flex items-center gap-1.5 text-xs">
+            <button type="button" data-loan-filter="Todos" class="loan-filter-btn px-2.5 py-1 rounded font-semibold bg-[#37352F] text-white cursor-pointer">
+              Todos
+            </button>
+            <button type="button" data-loan-filter="Pendiente" class="loan-filter-btn px-2.5 py-1 rounded font-medium bg-[#FBF3DB] text-[#8F6B00] cursor-pointer">
+              Pendientes de devolución
+            </button>
+            <button type="button" data-loan-filter="Devuelto" class="loan-filter-btn px-2.5 py-1 rounded font-medium bg-[#EDF3EC] text-[#0F7B6C] cursor-pointer">
+              Devueltos
+            </button>
+          </div>
+        </div>
+
+        <!-- TABLA / LISTA DE PRÉSTAMOS -->
+        <div id="loans-container" class="mt-4 border border-notion-border rounded-lg overflow-hidden bg-white">
+          <!-- Renderizado dinámicamente -->
+        </div>
 
       </div>
+
     </main>
 
     <!-- 3. RIGHT SIDE-PEEK DRAWER: ANOTAR / EDITAR COMPONENTE (PRD Req #1) -->
@@ -576,21 +610,18 @@
 
   </div>
 
-  <!-- MOBILE BOTTOM NAVIGATION BAR (PRD Mobile Experience) -->
-  <nav class="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-notion-border px-2 py-1.5 flex items-center justify-around z-30 text-[11px]" aria-label="Navegación móvil">
-    <button type="button" id="mob-nav-inventory" class="flex flex-col items-center gap-0.5 text-notion-blue font-semibold py-0.5 px-2">
+  <!-- BARRA INFERIOR MÓVIL (Sin duplicar "Inventarios", que está en el menú lateral ☰) -->
+  <nav class="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-notion-border px-3 py-1.5 flex items-center justify-around z-30 text-[11px]" aria-label="Navegación móvil">
+    <button type="button" id="mob-nav-inventory" class="flex flex-col items-center gap-0.5 text-notion-blue font-semibold py-0.5 px-3 cursor-pointer">
       <span class="material-symbols-outlined text-[20px]">inventory_2</span>
-      <span>Inventario</span>
+      <span>Componentes</span>
     </button>
-    <button type="button" id="mob-nav-projects" class="flex flex-col items-center gap-0.5 text-notion-muted hover:text-notion-text py-0.5 px-2">
-      <span class="material-symbols-outlined text-[20px]">folder_special</span>
-      <span>Inventarios</span>
-    </button>
-    <button type="button" id="mob-nav-loans" class="flex flex-col items-center gap-0.5 text-notion-muted hover:text-notion-text py-0.5 px-2">
+    <button type="button" id="mob-nav-loans" class="relative flex flex-col items-center gap-0.5 text-notion-muted hover:text-notion-text py-0.5 px-3 cursor-pointer">
       <span class="material-symbols-outlined text-[20px]">handshake</span>
       <span>Préstamos</span>
+      <span id="mob-loans-badge" class="hidden absolute -top-0.5 right-1 bg-[#FBF3DB] text-[#8F6B00] border border-[#F3E7C4] font-mono text-[9px] font-bold px-1 rounded-full">0</span>
     </button>
-    <button type="button" id="mob-nav-add" class="flex flex-col items-center gap-0.5 text-notion-blue font-semibold py-0.5 px-2">
+    <button type="button" id="mob-nav-add" class="flex flex-col items-center gap-0.5 text-notion-muted hover:text-notion-blue font-medium py-0.5 px-3 cursor-pointer">
       <span class="material-symbols-outlined text-[20px]">add_box</span>
       <span>Anotar Pieza</span>
     </button>
@@ -887,7 +918,7 @@
     </div>
   </dialog>
 
-  <!-- TOAST NOTIFICATION (Notion subtle bottom-right toast) -->
+  <!-- TOAST NOTIFICATION -->
   <div id="toast-container" class="fixed bottom-16 md:bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none" aria-live="polite"></div>
 
   <script type="module" src="/src/main.js"></script>

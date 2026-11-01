@@ -7,6 +7,8 @@ import {
 } from "./data.js";
 
 let state = loadState();
+if (!state.activeScreen) state.activeScreen = "inventory";
+if (!state.loanFilter) state.loanFilter = "Todos";
 let pendingConfirmAction = null;
 
 // --- Utilidades de Sanitización y Formato ---
@@ -217,29 +219,80 @@ function getComponentActiveLoans(componentId) {
   );
 }
 
+// --- Cambio de Pantalla Independiente (Inventario vs Préstamos) ---
+function switchScreen(screenName) {
+  state.activeScreen = screenName === "loans" ? "loans" : "inventory";
+  renderAll();
+  document.getElementById("main-canvas")?.scrollTo({ top: 0, behavior: "smooth" });
+}
+
 // --- Renderizado Completo de la Interfaz ---
 function renderAll() {
   saveState(state);
-  renderHeaderInventorySelect();
+  renderScreensAndNavigationState();
   renderSidebar();
   renderActiveInventoryHeaderAndKPIs();
   renderCategoryPills();
   renderViewTabsState();
   renderInventoryContent();
-  renderLoansSection();
+  renderLoansScreen();
 }
 
-function renderHeaderInventorySelect() {
-  const select = document.getElementById("header-inventory-select");
-  if (!select) return;
+function renderScreensAndNavigationState() {
+  const isLoans = state.activeScreen === "loans";
+  const inv = getActiveInventory();
+  const pendingLoansCount = state.loans.filter((l) => l.status === "Pendiente").length;
 
-  select.innerHTML = state.inventories
-    .map((inv) => {
-      const count = getInventoryComponents(inv.id).length;
-      const selected = inv.id === state.activeInventoryId ? "selected" : "";
-      return `<option value="${escapeHtml(inv.id)}" ${selected}>${escapeHtml(inv.icon)} ${escapeHtml(inv.name)} (${count})</option>`;
-    })
-    .join("");
+  // Mostrar/ocultar las dos pantallas independientes
+  document.getElementById("screen-inventory")?.classList.toggle("hidden", isLoans);
+  document.getElementById("screen-loans")?.classList.toggle("hidden", !isLoans);
+
+  // Actualizar Breadcrumb informativo en la barra superior
+  const breadcrumb = document.getElementById("header-breadcrumb-current");
+  if (breadcrumb) {
+    breadcrumb.textContent = isLoans
+      ? "🤝 Seguimiento de Préstamos"
+      : `${inv.icon} ${inv.name}`;
+  }
+
+  // Estado activo de los botones en la barra superior (Escritorio)
+  const topInvBtn = document.getElementById("top-screen-inventory");
+  const topLoansBtn = document.getElementById("top-screen-loans");
+  const topLoansBadge = document.getElementById("top-loans-badge");
+
+  if (topLoansBadge) {
+    topLoansBadge.textContent = String(pendingLoansCount);
+  }
+
+  if (topInvBtn && topLoansBtn) {
+    topInvBtn.className = !isLoans
+      ? "px-2.5 py-1 rounded font-semibold bg-white text-notion-text shadow-sm flex items-center gap-1.5 cursor-pointer transition-all"
+      : "px-2.5 py-1 rounded font-medium text-notion-muted hover:text-notion-text flex items-center gap-1.5 cursor-pointer transition-all";
+
+    topLoansBtn.className = isLoans
+      ? "px-2.5 py-1 rounded font-semibold bg-white text-notion-text shadow-sm flex items-center gap-1.5 cursor-pointer transition-all"
+      : "px-2.5 py-1 rounded font-medium text-notion-muted hover:text-notion-text flex items-center gap-1.5 cursor-pointer transition-all";
+  }
+
+  // Estado activo de la barra inferior móvil (Componentes vs Préstamos)
+  const mobInvBtn = document.getElementById("mob-nav-inventory");
+  const mobLoansBtn = document.getElementById("mob-nav-loans");
+  const mobLoansBadge = document.getElementById("mob-loans-badge");
+
+  if (mobLoansBadge) {
+    mobLoansBadge.textContent = String(pendingLoansCount);
+    mobLoansBadge.classList.toggle("hidden", pendingLoansCount === 0);
+  }
+
+  if (mobInvBtn && mobLoansBtn) {
+    mobInvBtn.className = !isLoans
+      ? "flex flex-col items-center gap-0.5 text-notion-blue font-semibold py-0.5 px-3 cursor-pointer"
+      : "flex flex-col items-center gap-0.5 text-notion-muted hover:text-notion-text py-0.5 px-3 cursor-pointer";
+
+    mobLoansBtn.className = isLoans
+      ? "relative flex flex-col items-center gap-0.5 text-notion-blue font-semibold py-0.5 px-3 cursor-pointer"
+      : "relative flex flex-col items-center gap-0.5 text-notion-muted hover:text-notion-text py-0.5 px-3 cursor-pointer";
+  }
 }
 
 function renderSidebar() {
@@ -247,7 +300,8 @@ function renderSidebar() {
   if (invListEl) {
     invListEl.innerHTML = state.inventories
       .map((inv) => {
-        const isActive = inv.id === state.activeInventoryId;
+        const isActive =
+          state.activeScreen === "inventory" && inv.id === state.activeInventoryId;
         const count = getInventoryComponents(inv.id).length;
         return `
           <div class="group flex items-center justify-between rounded transition-colors ${
@@ -268,7 +322,7 @@ function renderSidebar() {
                 type="button"
                 data-rename-inv-id="${escapeHtml(inv.id)}"
                 title="Renombrar o editar inventario"
-                class="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-white/80 text-notion-muted hover:text-notion-text transition-opacity cursor-pointer"
+                class="opacity-70 md:opacity-0 md:group-hover:opacity-100 p-0.5 rounded hover:bg-white/80 text-notion-muted hover:text-notion-text transition-opacity cursor-pointer"
               >
                 <span class="material-symbols-outlined text-[13px]">edit</span>
               </button>
@@ -278,7 +332,7 @@ function renderSidebar() {
                       type="button"
                       data-delete-inv-id="${escapeHtml(inv.id)}"
                       title="Eliminar inventario"
-                      class="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-[#FBE4E4] text-notion-muted hover:text-[#E03E3E] transition-opacity cursor-pointer"
+                      class="opacity-70 md:opacity-0 md:group-hover:opacity-100 p-0.5 rounded hover:bg-[#FBE4E4] text-notion-muted hover:text-[#E03E3E] transition-opacity cursor-pointer"
                     >
                       <span class="material-symbols-outlined text-[13px]">delete</span>
                     </button>`
@@ -296,53 +350,27 @@ function renderSidebar() {
 
   const currentComps = getInventoryComponents(state.activeInventoryId);
   const agotadosCount = currentComps.filter((c) => c.quantity === 0).length;
-  const activeLoansCount = state.loans.filter((l) => l.status === "Pendiente").length;
   const totalUnitsAll = state.components.reduce((acc, c) => acc + Number(c.quantity || 0), 0);
 
   document.getElementById("sidebar-total-badge").textContent = String(currentComps.length);
   document.getElementById("sidebar-agotados-badge").textContent = String(agotadosCount);
-  document.getElementById("sidebar-loans-badge").textContent = String(activeLoansCount);
   document.getElementById("sidebar-total-units").textContent = `${totalUnitsAll} uds`;
 
-  const catNav = document.getElementById("sidebar-categories-list");
-  if (catNav) {
-    catNav.innerHTML = getCategories()
-      .map((cat) => {
-        const count = currentComps.filter((c) => c.category === cat.name).length;
-        const isActive = state.activeCategory === cat.name;
-        return `
-          <div class="group flex items-center justify-between rounded transition-colors ${
-            isActive
-              ? "bg-[#E5E5E2] text-notion-text font-semibold"
-              : "text-notion-muted hover:bg-notion-hover hover:text-notion-text"
-          }">
-            <button
-              type="button"
-              data-cat="${escapeHtml(cat.name)}"
-              class="sidebar-cat-btn flex-1 flex items-center gap-2 px-2.5 py-1.5 text-xs text-left truncate cursor-pointer"
-            >
-              <span>${escapeHtml(cat.icon || "📦")}</span>
-              <span class="truncate">${escapeHtml(cat.name)}</span>
-            </button>
-            <div class="flex items-center gap-1 pr-2">
-              ${
-                !cat.isDefault
-                  ? `<button
-                      type="button"
-                      data-delete-cat="${escapeHtml(cat.name)}"
-                      title="Eliminar categoría ${escapeHtml(cat.name)}"
-                      class="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-[#FBE4E4] text-notion-muted hover:text-[#E03E3E] transition-opacity cursor-pointer"
-                    >
-                      <span class="material-symbols-outlined text-[13px]">close</span>
-                    </button>`
-                  : ""
-              }
-              <span class="text-[10px] font-mono text-notion-muted">${count}</span>
-            </div>
-          </div>
-        `;
-      })
-      .join("");
+  // Resaltar estado en Control Rápido
+  const navAllBtn = document.getElementById("nav-filter-all");
+  const navAgotadosBtn = document.getElementById("nav-filter-agotados");
+  if (navAllBtn && navAgotadosBtn) {
+    const isAllActive =
+      state.activeScreen === "inventory" && state.activeCategory === "Todos";
+    const isAgotadosActive =
+      state.activeScreen === "inventory" && state.activeCategory === "Agotados";
+
+    navAllBtn.className = `w-full flex items-center justify-between px-2.5 py-1.5 text-xs rounded transition-colors cursor-pointer ${
+      isAllActive ? "bg-[#E5E5E2] text-notion-text font-semibold" : "text-notion-text hover:bg-notion-hover"
+    }`;
+    navAgotadosBtn.className = `w-full flex items-center justify-between px-2.5 py-1.5 text-xs rounded transition-colors cursor-pointer ${
+      isAgotadosActive ? "bg-[#E5E5E2] text-notion-text font-semibold" : "text-notion-text hover:bg-notion-hover"
+    }`;
   }
 }
 
@@ -377,20 +405,22 @@ function renderCategoryPills() {
   const agotadosCount = comps.filter((c) => c.quantity === 0).length;
 
   const pills = [
-    { key: "Todos", label: `Todos (${comps.length})`, pillClass: "" },
+    { key: "Todos", label: `Todos (${comps.length})`, pillClass: "", isCustom: false },
     ...getCategories().map((cat) => ({
       key: cat.name,
       label: `${cat.icon} ${cat.name} (${comps.filter((c) => c.category === cat.name).length})`,
-      pillClass: getCategoryPillClass(cat.name)
+      pillClass: getCategoryPillClass(cat.name),
+      isCustom: !cat.isDefault
     })),
     {
       key: "Agotados",
       label: `⚠️ Solo Agotados (${agotadosCount})`,
-      pillClass: "bg-[#FBE4E4] text-[#E03E3E]"
+      pillClass: "bg-[#FBE4E4] text-[#E03E3E]",
+      isCustom: false
     }
   ];
 
-  bar.innerHTML = pills
+  const pillsHtml = pills
     .map((p) => {
       const isSelected = state.activeCategory === p.key;
       const activeRing = isSelected
@@ -404,31 +434,49 @@ function renderCategoryPills() {
           : p.pillClass;
 
       return `
-        <button
-          type="button"
-          data-pill-cat="${escapeHtml(p.key)}"
-          class="cat-pill-btn whitespace-nowrap px-2.5 py-1 rounded text-xs transition-all cursor-pointer ${baseBg} ${activeRing}"
-        >
-          ${escapeHtml(p.label)}
-        </button>
+        <div class="inline-flex items-center rounded ${baseBg} ${activeRing} transition-all">
+          <button
+            type="button"
+            data-pill-cat="${escapeHtml(p.key)}"
+            class="cat-pill-btn whitespace-nowrap px-2.5 py-1 text-xs cursor-pointer"
+          >
+            ${escapeHtml(p.label)}
+          </button>
+          ${
+            p.isCustom
+              ? `<button
+                  type="button"
+                  data-delete-cat="${escapeHtml(p.key)}"
+                  title="Eliminar categoría ${escapeHtml(p.key)}"
+                  class="pr-1.5 pl-0.5 text-[11px] opacity-70 hover:opacity-100 cursor-pointer"
+                >✕</button>`
+              : ""
+          }
+        </div>
       `;
     })
     .join("");
+
+  bar.innerHTML = `
+    ${pillsHtml}
+    <button
+      type="button"
+      id="btn-pill-new-category"
+      title="Crear nueva categoría personalizada"
+      class="whitespace-nowrap px-2.5 py-1 rounded text-xs font-medium bg-white border border-dashed border-notion-border text-notion-blue hover:bg-notion-sidebar transition-colors cursor-pointer"
+    >
+      + Categoría
+    </button>
+  `;
 }
 
 function renderViewTabsState() {
   document.querySelectorAll(".view-tab").forEach((btn) => {
     const view = btn.getAttribute("data-view");
     const isActive = view === state.viewMode;
-    if (btn.closest("header")) {
-      btn.className = isActive
-        ? "view-tab text-notion-blue border-b-2 border-notion-blue font-semibold pb-1 flex items-center gap-1.5 cursor-pointer"
-        : "view-tab text-notion-muted hover:text-notion-text pb-1 flex items-center gap-1.5 transition-colors cursor-pointer";
-    } else {
-      btn.className = isActive
-        ? "view-tab px-2.5 py-1 rounded font-semibold bg-white text-notion-text shadow-sm"
-        : "view-tab px-2.5 py-1 rounded font-medium text-notion-muted hover:text-notion-text";
-    }
+    btn.className = isActive
+      ? "view-tab px-2.5 py-1 rounded font-semibold bg-white text-notion-text shadow-sm flex items-center gap-1 cursor-pointer"
+      : "view-tab px-2.5 py-1 rounded font-medium text-notion-muted hover:text-notion-text flex items-center gap-1 cursor-pointer";
   });
 }
 
@@ -792,19 +840,52 @@ function renderLocationsView(components) {
   `;
 }
 
-// --- Renderizado de Seguimiento de Préstamos (PRD Req #6) ---
-function renderLoansSection() {
+// --- Renderizado de la Pantalla Independiente de Seguimiento de Préstamos (PRD Req #6) ---
+function renderLoansScreen() {
   const container = document.getElementById("loans-container");
   const pill = document.getElementById("loans-pending-pill");
   if (!container || !pill) return;
 
   const pendingLoans = state.loans.filter((l) => l.status === "Pendiente");
+  const returnedLoans = state.loans.filter((l) => l.status === "Devuelto");
+  const unitsOut = pendingLoans.reduce((sum, l) => sum + Number(l.quantity || 1), 0);
+
   pill.textContent = `${pendingLoans.length} PENDIENTE${pendingLoans.length === 1 ? "" : "S"}`;
 
-  if (state.loans.length === 0) {
+  const kpiActive = document.getElementById("loans-kpi-active");
+  const kpiUnits = document.getElementById("loans-kpi-units");
+  const kpiReturned = document.getElementById("loans-kpi-returned");
+  if (kpiActive) kpiActive.textContent = String(pendingLoans.length);
+  if (kpiUnits) kpiUnits.textContent = String(unitsOut);
+  if (kpiReturned) kpiReturned.textContent = String(returnedLoans.length);
+
+  // Actualizar estado de las píldoras de filtro de préstamos
+  document.querySelectorAll(".loan-filter-btn").forEach((btn) => {
+    const f = btn.getAttribute("data-loan-filter");
+    const isSelected = f === state.loanFilter;
+    const activeRing = isSelected ? "ring-2 ring-[#37352F] font-semibold" : "opacity-80 hover:opacity-100";
+    if (f === "Todos") {
+      btn.className = `loan-filter-btn px-2.5 py-1 rounded text-xs cursor-pointer ${
+        isSelected ? "bg-[#37352F] text-white font-semibold" : "bg-notion-sidebar text-notion-text"
+      }`;
+    } else if (f === "Pendiente") {
+      btn.className = `loan-filter-btn px-2.5 py-1 rounded text-xs bg-[#FBF3DB] text-[#8F6B00] cursor-pointer ${activeRing}`;
+    } else {
+      btn.className = `loan-filter-btn px-2.5 py-1 rounded text-xs bg-[#EDF3EC] text-[#0F7B6C] cursor-pointer ${activeRing}`;
+    }
+  });
+
+  const filteredLoans = state.loans.filter((l) => {
+    if (state.loanFilter === "Todos") return true;
+    return l.status === state.loanFilter;
+  });
+
+  if (filteredLoans.length === 0) {
     container.innerHTML = `
-      <div class="p-6 text-center text-xs text-notion-muted">
-        No tienes préstamos registrados todavía. Usa el botón <strong>"Registrar préstamo"</strong> cuando le prestes un componente a un compañero.
+      <div class="p-8 text-center text-xs text-notion-muted">
+        <div class="text-2xl mb-2">🤝</div>
+        <div class="font-semibold text-notion-text">No hay préstamos en esta vista</div>
+        <p class="mt-1">Usa el botón <strong>"Registrar préstamo"</strong> cuando le prestes un componente a un compañero.</p>
       </div>
     `;
     return;
@@ -824,7 +905,7 @@ function renderLoansSection() {
           </tr>
         </thead>
         <tbody class="divide-y divide-notion-border">
-          ${state.loans
+          ${filteredLoans
             .map((loan) => {
               const isPending = loan.status === "Pendiente";
               const initials = loan.borrowerName
@@ -1220,14 +1301,18 @@ function initApp() {
       if (typeof fn === "function") fn();
     });
 
-  // Cambio de inventario desde selector superior
-  document.getElementById("header-inventory-select")?.addEventListener("change", (e) => {
-    state.activeInventoryId = e.target.value;
-    state.activeCategory = "Todos";
-    renderAll();
+  // Navegación entre pantallas independientes (Inventario vs Préstamos)
+  document.getElementById("top-screen-inventory")?.addEventListener("click", () => {
+    switchScreen("inventory");
+  });
+  document.getElementById("top-screen-loans")?.addEventListener("click", () => {
+    switchScreen("loans");
+  });
+  document.getElementById("btn-back-to-inventory")?.addEventListener("click", () => {
+    switchScreen("inventory");
   });
 
-  // Cambio de vistas (Tabla / Galería / Ubicación)
+  // Cambio de vistas de base de datos (Tabla / Tarjetas / Cajas)
   document.querySelectorAll(".view-tab").forEach((btn) => {
     btn.addEventListener("click", () => {
       state.viewMode = btn.getAttribute("data-view") || "table";
@@ -1252,7 +1337,7 @@ function initApp() {
     searchInput.focus();
   });
 
-  // Delegación de eventos en el Sidebar izquierdo
+  // Delegación de eventos en el Menú Lateral (Mis Inventarios)
   document.getElementById("left-sidebar")?.addEventListener("click", (e) => {
     const renameInvBtn = e.target.closest("[data-rename-inv-id]");
     if (renameInvBtn) {
@@ -1270,20 +1355,7 @@ function initApp() {
     if (invBtn) {
       state.activeInventoryId = invBtn.getAttribute("data-inv-id");
       state.activeCategory = "Todos";
-      closeMobileSidebar();
-      renderAll();
-      return;
-    }
-
-    const delCatBtn = e.target.closest("[data-delete-cat]");
-    if (delCatBtn) {
-      promptDeleteCategory(delCatBtn.getAttribute("data-delete-cat"));
-      return;
-    }
-
-    const catBtn = e.target.closest(".sidebar-cat-btn");
-    if (catBtn) {
-      state.activeCategory = catBtn.getAttribute("data-cat");
+      state.activeScreen = "inventory";
       closeMobileSidebar();
       renderAll();
       return;
@@ -1292,6 +1364,7 @@ function initApp() {
 
   // Botones de Control Rápido en Sidebar y KPIs
   const setCategoryFilter = (cat) => {
+    state.activeScreen = "inventory";
     state.activeCategory = cat;
     closeMobileSidebar();
     renderAll();
@@ -1301,20 +1374,33 @@ function initApp() {
   document.getElementById("kpi-card-all")?.addEventListener("click", () => setCategoryFilter("Todos"));
   document.getElementById("nav-filter-agotados")?.addEventListener("click", () => setCategoryFilter("Agotados"));
   document.getElementById("kpi-card-agotados")?.addEventListener("click", () => setCategoryFilter("Agotados"));
+  document.getElementById("kpi-card-loans")?.addEventListener("click", () => switchScreen("loans"));
 
-  const scrollToLoans = () => {
-    closeMobileSidebar();
-    document.getElementById("loans-section")?.scrollIntoView({ behavior: "smooth" });
-  };
-  document.getElementById("nav-scroll-loans")?.addEventListener("click", scrollToLoans);
-  document.getElementById("kpi-card-loans")?.addEventListener("click", scrollToLoans);
-
-  // Píldoras de categoría
+  // Píldoras de categoría (Filtrar, eliminar categoría personalizada o añadir nueva)
   document.getElementById("category-pills-bar")?.addEventListener("click", (e) => {
+    if (e.target.closest("#btn-pill-new-category")) {
+      openCategoryDialog();
+      return;
+    }
+
+    const delCatBtn = e.target.closest("[data-delete-cat]");
+    if (delCatBtn) {
+      promptDeleteCategory(delCatBtn.getAttribute("data-delete-cat"));
+      return;
+    }
+
     const pill = e.target.closest(".cat-pill-btn");
     if (!pill) return;
     state.activeCategory = pill.getAttribute("data-pill-cat") || "Todos";
     renderAll();
+  });
+
+  // Filtros en la pantalla independiente de Préstamos
+  document.getElementById("loan-filter-pills")?.addEventListener("click", (e) => {
+    const btn = e.target.closest(".loan-filter-btn");
+    if (!btn) return;
+    state.loanFilter = btn.getAttribute("data-loan-filter") || "Todos";
+    renderLoansScreen();
   });
 
   // Delegación de eventos en el contenedor de inventario (Stock +/-, Editar, Prestar, Eliminar)
@@ -1391,10 +1477,6 @@ function initApp() {
 
   // Botones para abrir Side-Peek Drawer (Nuevo Componente)
   document.getElementById("btn-new-component-top")?.addEventListener("click", openDrawerForNew);
-  document.getElementById("btn-sidebar-new-component")?.addEventListener("click", () => {
-    closeMobileSidebar();
-    openDrawerForNew();
-  });
   document.getElementById("btn-close-drawer")?.addEventListener("click", closeDrawer);
   document.getElementById("btn-cancel-drawer")?.addEventListener("click", closeDrawer);
 
@@ -1473,6 +1555,7 @@ function initApp() {
         notes
       });
       state.activeInventoryId = inventoryId;
+      state.activeScreen = "inventory";
       showToast(`Componente registrado en MecaKit: ${model}`, "✨");
     }
 
@@ -1511,11 +1594,6 @@ function initApp() {
 
   // Modal de Añadir Categoría Personalizada (ej. Capacitores)
   document.getElementById("btn-drawer-new-category")?.addEventListener("click", openCategoryDialog);
-  document.getElementById("btn-new-category-icon")?.addEventListener("click", openCategoryDialog);
-  document.getElementById("btn-new-category-sidebar")?.addEventListener("click", () => {
-    closeMobileSidebar();
-    openCategoryDialog();
-  });
   document
     .getElementById("btn-close-cat-dialog")
     ?.addEventListener("click", () => catDialog?.close());
@@ -1673,6 +1751,7 @@ function initApp() {
       });
       state.activeInventoryId = newInvId;
       state.activeCategory = "Todos";
+      state.activeScreen = "inventory";
 
       invDialog?.close();
       renderAll();
@@ -1702,7 +1781,7 @@ function initApp() {
     });
   });
 
-  // Navegación Móvil (Sidebar & Bottom Bar)
+  // Navegación Móvil (Menú Lateral de 3 líneas ☰ y Barra Inferior sin duplicar Inventarios)
   const sidebar = document.getElementById("left-sidebar");
   const backdrop = document.getElementById("mobile-sidebar-backdrop");
 
@@ -1722,11 +1801,17 @@ function initApp() {
   document.getElementById("mob-nav-inventory")?.addEventListener("click", () => {
     closeMobileSidebar();
     closeDrawer();
-    document.getElementById("main-canvas")?.scrollTo({ top: 0, behavior: "smooth" });
+    switchScreen("inventory");
   });
-  document.getElementById("mob-nav-projects")?.addEventListener("click", openMobileSidebar);
-  document.getElementById("mob-nav-loans")?.addEventListener("click", scrollToLoans);
-  document.getElementById("mob-nav-add")?.addEventListener("click", openDrawerForNew);
+  document.getElementById("mob-nav-loans")?.addEventListener("click", () => {
+    closeMobileSidebar();
+    closeDrawer();
+    switchScreen("loans");
+  });
+  document.getElementById("mob-nav-add")?.addEventListener("click", () => {
+    closeMobileSidebar();
+    openDrawerForNew();
+  });
 }
 
 document.addEventListener("DOMContentLoaded", initApp);
