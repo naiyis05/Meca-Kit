@@ -37,6 +37,275 @@
 </head>
 <body class="bg-notion-bg text-notion-text font-body antialiased h-full flex flex-col overflow-hidden select-none">
 
+  <!-- =========================================================
+       PANTALLA DE AUTENTICACIÓN: INICIO DE SESIÓN Y REGISTRO (#auth-screen)
+       (Bloquea el acceso hasta que el estudiante inicie sesión con su cuenta)
+       ========================================================= -->
+  <section id="auth-screen" class="fixed inset-0 z-50 bg-notion-sidebar flex flex-col justify-between overflow-y-auto custom-scrollbar p-4 sm:p-6">
+    <!-- Barra superior minimalista estilo Notion -->
+    <div class="max-w-5xl w-full mx-auto flex items-center justify-between py-2">
+      <div class="flex items-center gap-2">
+        <span class="text-xl">⚙️</span>
+        <span class="font-headline font-bold text-sm text-notion-text tracking-tight">MecaKit</span>
+        <span class="text-[11px] font-mono px-2 py-0.5 rounded bg-[#DDEBF1] text-[#0B6E99] font-medium">
+          Cloud + RLS Privado
+        </span>
+      </div>
+      <span class="text-xs text-notion-muted hidden sm:inline">
+        Inventario personal de componentes para Ingeniería Mecatrónica
+      </span>
+    </div>
+
+    <!-- Tarjeta central de Inicio de Sesión / Registro -->
+    <div class="my-auto max-w-md w-full mx-auto bg-white border border-notion-border rounded-xl shadow-sm p-6 sm:p-7">
+      <div class="text-center mb-5">
+        <div class="w-12 h-12 rounded-xl bg-notion-sidebar border border-notion-border flex items-center justify-center text-2xl mx-auto mb-3">
+          ⚙️
+        </div>
+        <h1 id="auth-heading" class="font-headline text-xl font-bold text-notion-text tracking-tight">
+          Inicia sesión en tu MecaKit
+        </h1>
+        <p id="auth-subheading" class="text-xs text-notion-muted mt-1 leading-relaxed">
+          Accede desde cualquier dispositivo. Tus inventarios, componentes, ubicaciones y préstamos son privados y exclusivos de tu cuenta.
+        </p>
+      </div>
+
+      <!-- Selector de pestaña: Iniciar sesión vs Crear cuenta -->
+      <div class="grid grid-cols-2 gap-1 p-1 bg-notion-sidebar rounded-lg border border-notion-border text-xs mb-5" role="tablist" aria-label="Opciones de acceso">
+        <button
+          type="button"
+          id="tab-auth-signin"
+          role="tab"
+          aria-selected="true"
+          class="py-1.5 px-3 rounded-md font-semibold bg-white text-notion-text shadow-sm transition-all cursor-pointer"
+        >
+          Iniciar sesión
+        </button>
+        <button
+          type="button"
+          id="tab-auth-signup"
+          role="tab"
+          aria-selected="false"
+          class="py-1.5 px-3 rounded-md font-medium text-notion-muted hover:text-notion-text transition-all cursor-pointer"
+        >
+          Crear cuenta
+        </button>
+      </div>
+
+      <!-- Banner de error o estado de autenticación -->
+      <div id="auth-feedback" class="hidden mb-4 p-3 rounded-lg text-xs font-medium border" role="alert"></div>
+
+      <!-- FORMULARIO 1: INICIAR SESIÓN (autofill-sign-in-form) -->
+      <form id="signin-form" class="space-y-3.5" novalidate>
+        <div>
+          <label for="signin-email" class="block text-xs font-semibold text-notion-text mb-1">
+            Correo electrónico *
+          </label>
+          <input
+            id="signin-email"
+            name="email"
+            type="email"
+            autocomplete="username"
+            spellcheck="false"
+            enterkeyhint="next"
+            required
+            aria-errormessage="signin-email-error"
+            placeholder="tu.correo@universidad.edu.co"
+            class="w-full text-xs py-2 px-3 border border-notion-border rounded-lg bg-notion-sidebar/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-notion-blue text-notion-text"
+          />
+          <div id="signin-email-error" class="error-msg">
+            <span aria-hidden="true">❌</span> Ingresa un correo electrónico válido.
+          </div>
+        </div>
+
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <label for="signin-password" class="block text-xs font-semibold text-notion-text">
+              Contraseña *
+            </label>
+            <button
+              type="button"
+              id="btn-toggle-signin-pw"
+              class="text-[11px] text-notion-blue hover:underline font-medium cursor-pointer"
+              aria-controls="signin-password"
+            >
+              Mostrar contraseña
+            </button>
+          </div>
+          <input
+            id="signin-password"
+            name="password"
+            type="password"
+            autocomplete="current-password"
+            enterkeyhint="done"
+            required
+            minlength="6"
+            aria-errormessage="signin-password-error"
+            placeholder="••••••••"
+            class="w-full text-xs py-2 px-3 border border-notion-border rounded-lg bg-notion-sidebar/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-notion-blue text-notion-text"
+          />
+          <div id="signin-password-error" class="error-msg">
+            <span aria-hidden="true">❌</span> Ingresa tu contraseña (mínimo 6 caracteres).
+          </div>
+        </div>
+
+        <button
+          type="submit"
+          id="btn-submit-signin"
+          class="w-full py-2 px-4 rounded-lg bg-notion-blue hover:bg-notion-blue-hover text-white text-xs font-semibold shadow-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-98"
+        >
+          <span class="material-symbols-outlined text-[16px]">login</span>
+          <span>Iniciar sesión</span>
+        </button>
+
+        <div class="pt-3 border-t border-notion-border space-y-2">
+          <p class="text-[11px] text-notion-muted text-center">
+            ¿Quieres explorar una cuenta de demostración ya poblada o probar la separación de cuentas?
+          </p>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <button
+              type="button"
+              id="btn-demo-camilo"
+              class="w-full py-1.5 px-2.5 rounded-lg border border-notion-border bg-notion-sidebar hover:bg-notion-hover text-[11px] font-medium text-notion-text flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <span>👨‍🔧</span>
+              <span>Demo: Camilo (15 piezas)</span>
+            </button>
+            <button
+              type="button"
+              id="btn-demo-valentina"
+              class="w-full py-1.5 px-2.5 rounded-lg border border-notion-border bg-notion-sidebar hover:bg-notion-hover text-[11px] font-medium text-notion-text flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <span>👩‍🔬</span>
+              <span>Demo: Valentina (Cuenta 2)</span>
+            </button>
+          </div>
+        </div>
+      </form>
+
+      <!-- FORMULARIO 2: CREAR CUENTA NUEVA (autofill-sign-up-form) -->
+      <form id="signup-form" class="hidden space-y-3.5" novalidate>
+        <div>
+          <label for="signup-email" class="block text-xs font-semibold text-notion-text mb-1">
+            Correo electrónico *
+          </label>
+          <input
+            id="signup-email"
+            name="email"
+            type="email"
+            autocomplete="username"
+            spellcheck="false"
+            enterkeyhint="next"
+            required
+            aria-errormessage="signup-email-error"
+            placeholder="estudiante@universidad.edu.co"
+            class="w-full text-xs py-2 px-3 border border-notion-border rounded-lg bg-notion-sidebar/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-notion-blue text-notion-text"
+          />
+          <div id="signup-email-error" class="error-msg">
+            <span aria-hidden="true">❌</span> Ingresa un correo electrónico válido para tu cuenta.
+          </div>
+        </div>
+
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <label for="signup-password" class="block text-xs font-semibold text-notion-text">
+              Contraseña nueva (mín. 6 caracteres) *
+            </label>
+            <button
+              type="button"
+              id="btn-toggle-signup-pw"
+              class="text-[11px] text-notion-blue hover:underline font-medium cursor-pointer"
+              aria-controls="signup-password"
+            >
+              Mostrar contraseña
+            </button>
+          </div>
+          <input
+            id="signup-password"
+            name="new-password"
+            type="password"
+            autocomplete="new-password"
+            enterkeyhint="next"
+            required
+            minlength="6"
+            aria-errormessage="signup-password-error"
+            placeholder="Mínimo 6 caracteres"
+            class="w-full text-xs py-2 px-3 border border-notion-border rounded-lg bg-notion-sidebar/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-notion-blue text-notion-text"
+          />
+          <div id="signup-password-error" class="error-msg">
+            <span aria-hidden="true">❌</span> La contraseña debe tener al menos 6 caracteres.
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <div>
+            <label for="signup-name" class="block text-xs font-semibold text-notion-text mb-1">
+              Tu nombre *
+            </label>
+            <input
+              id="signup-name"
+              name="name"
+              type="text"
+              autocomplete="name"
+              enterkeyhint="next"
+              required
+              aria-errormessage="signup-name-error"
+              placeholder="Ej. Andrés Pérez"
+              class="w-full text-xs py-2 px-3 border border-notion-border rounded-lg bg-notion-sidebar/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-notion-blue text-notion-text"
+            />
+            <div id="signup-name-error" class="error-msg">
+              <span aria-hidden="true">❌</span> Ingresa tu nombre.
+            </div>
+          </div>
+
+          <div>
+            <label for="signup-career" class="block text-xs font-semibold text-notion-text mb-1">
+              Semestre / Carrera
+            </label>
+            <input
+              id="signup-career"
+              name="organization-title"
+              type="text"
+              autocomplete="organization-title"
+              enterkeyhint="done"
+              value="5.º Sem · Ing. Mecatrónica"
+              placeholder="Ej. 5.º Sem · Mecatrónica"
+              class="w-full text-xs py-2 px-3 border border-notion-border rounded-lg bg-notion-sidebar/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-notion-blue text-notion-text"
+            />
+          </div>
+        </div>
+
+        <label class="flex items-start gap-2 p-2.5 rounded-lg bg-notion-sidebar/60 border border-notion-border text-[11px] text-notion-muted cursor-pointer">
+          <input
+            id="signup-seed-demo"
+            type="checkbox"
+            class="mt-0.5 rounded border-notion-border text-notion-blue focus:ring-notion-blue"
+          />
+          <span>
+            Incluir componentes de demostración en mi cuenta inicial (deja desmarcado para iniciar con tu inventario totalmente en blanco).
+          </span>
+        </label>
+
+        <button
+          type="submit"
+          id="btn-submit-signup"
+          class="w-full py-2 px-4 rounded-lg bg-notion-blue hover:bg-notion-blue-hover text-white text-xs font-semibold shadow-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer active:scale-98"
+        >
+          <span class="material-symbols-outlined text-[16px]">person_add</span>
+          <span>Crear cuenta personal</span>
+        </button>
+      </form>
+    </div>
+
+    <!-- Pie informativo de seguridad -->
+    <div class="max-w-md w-full mx-auto text-center py-2 text-[11px] text-notion-muted">
+      🔒 Protegido con autenticación Supabase y políticas Row-Level Security (RLS) en PostgreSQL.
+    </div>
+  </section>
+
+  <!-- CONTENEDOR DE LA APLICACIÓN AUTENTICADA (#app-shell) -->
+  <div id="app-shell" class="hidden h-full flex flex-col overflow-hidden">
+
   <!-- TOP NAVIGATION BAR (Sin selectores redundantes de inventario; usa menú ☰ en móvil) -->
   <header class="flex justify-between items-center w-full px-4 md:px-6 py-2.5 bg-white border-b border-notion-border sticky top-0 z-30">
     <div class="flex items-center gap-2 md:gap-3 min-w-0">
@@ -84,11 +353,22 @@
         <span class="xs:hidden">Anotar</span>
       </button>
 
-      <div class="hidden lg:flex items-center gap-2 ml-1 pl-2 border-l border-notion-border" title="Camilo — 5.º Semestre Ingeniería Mecatrónica">
-        <div class="w-7 h-7 rounded-full bg-[#DDEBF1] text-[#0B6E99] flex items-center justify-center font-bold text-xs">
-          C
+      <div class="flex items-center gap-2 ml-1 pl-2 border-l border-notion-border">
+        <div id="header-user-avatar" class="w-7 h-7 rounded-full bg-[#DDEBF1] text-[#0B6E99] flex items-center justify-center font-bold text-xs">
+          U
         </div>
-        <span class="text-xs font-medium text-notion-text hidden xl:inline">Camilo (5.º Sem)</span>
+        <span id="header-user-name" class="text-xs font-medium text-notion-text hidden lg:inline max-w-[140px] truncate">
+          Estudiante
+        </span>
+        <button
+          id="btn-logout-top"
+          type="button"
+          title="Cerrar sesión de esta cuenta"
+          class="px-2 py-1 rounded text-[11px] font-medium text-notion-muted hover:text-[#E03E3E] hover:bg-[#FBE4E4]/60 border border-transparent hover:border-[#F5C6C6] transition-colors flex items-center gap-1 cursor-pointer"
+        >
+          <span class="material-symbols-outlined text-[15px]">logout</span>
+          <span class="hidden sm:inline">Salir</span>
+        </button>
       </div>
     </div>
   </header>
@@ -102,13 +382,13 @@
     <!-- 1. MENÚ LATERAL (Simplificado: Mis Inventarios, Control Rápido y Unidades Totales) -->
     <aside id="left-sidebar" class="w-64 h-full flex flex-col justify-between p-3 border-r border-notion-border bg-notion-sidebar flex-shrink-0 fixed md:static inset-y-0 left-0 z-40 -translate-x-full md:translate-x-0 transition-transform duration-200">
       <div class="flex flex-col gap-5 overflow-y-auto custom-scrollbar pr-0.5">
-        <!-- Encabezado del Estudiante -->
+        <!-- Encabezado del Estudiante Autenticado -->
         <div class="flex items-center justify-between p-2 rounded bg-white border border-notion-border">
           <div class="flex items-center gap-2 min-w-0">
             <span class="text-xl">⚙️</span>
             <div class="flex flex-col min-w-0">
-              <span class="font-headline text-xs font-bold text-notion-text tracking-tight truncate">MecaKit Personal</span>
-              <span class="text-[11px] text-notion-muted truncate">Camilo · Ing. Mecatrónica</span>
+              <span id="sidebar-user-name" class="font-headline text-xs font-bold text-notion-text tracking-tight truncate">MecaKit Personal</span>
+              <span id="sidebar-user-career" class="text-[11px] text-notion-muted truncate">Estudiante · Ing. Mecatrónica</span>
             </div>
           </div>
           <button id="btn-close-sidebar-mobile" type="button" class="md:hidden p-1 text-notion-muted hover:text-notion-text cursor-pointer" aria-label="Cerrar menú">
@@ -158,21 +438,27 @@
         </div>
       </div>
 
-      <!-- SECCIÓN 3: UNIDADES TOTALES (Pie del Menú Lateral) -->
+      <!-- SECCIÓN 3: UNIDADES TOTALES Y SESIÓN (Pie del Menú Lateral) -->
       <div class="pt-3 border-t border-notion-border space-y-2">
         <div class="p-3 rounded-lg bg-white border border-notion-border text-[11px] text-notion-muted flex flex-col gap-1">
           <div class="flex justify-between items-center font-medium text-notion-text">
             <span>📦 Unidades Totales</span>
             <span id="sidebar-total-units" class="font-mono text-xs font-bold text-notion-blue">0 uds</span>
           </div>
-          <p class="text-[10px] text-notion-muted leading-tight">
-            Suma de todos tus inventarios guardada en este dispositivo.
+          <p id="sidebar-user-email" class="text-[10px] text-notion-muted leading-tight truncate">
+            Sincronizado en tu cuenta privada (RLS)
           </p>
         </div>
-        <button id="btn-reset-demo" type="button" class="w-full flex items-center justify-center gap-1.5 px-2 py-1 text-[11px] text-notion-muted hover:text-notion-text hover:bg-notion-hover rounded transition-colors cursor-pointer">
-          <span class="material-symbols-outlined text-[14px]">restart_alt</span>
-          <span>Restaurar datos de ejemplo</span>
-        </button>
+        <div class="flex items-center gap-1.5">
+          <button id="btn-reset-demo" type="button" class="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-[11px] text-notion-muted hover:text-notion-text hover:bg-notion-hover border border-notion-border bg-white rounded transition-colors cursor-pointer" title="Cargar kit de demostración en esta cuenta">
+            <span class="material-symbols-outlined text-[14px]">restart_alt</span>
+            <span>Kit ejemplo</span>
+          </button>
+          <button id="btn-logout-sidebar" type="button" class="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-[11px] text-[#E03E3E] hover:bg-[#FBE4E4]/60 border border-[#F5C6C6] bg-white rounded transition-colors cursor-pointer" title="Cerrar sesión">
+            <span class="material-symbols-outlined text-[14px]">logout</span>
+            <span>Cerrar sesión</span>
+          </button>
+        </div>
       </div>
     </aside>
 
@@ -626,6 +912,8 @@
       <span>Anotar Pieza</span>
     </button>
   </nav>
+
+  </div><!-- /#app-shell -->
 
   <!-- DIALOG 1: REGISTRAR PRÉSTAMO (Modern Web Guidance: light-dismiss-a-dialog) -->
   <dialog id="loan-dialog" closedby="any" aria-labelledby="loan-dialog-title">

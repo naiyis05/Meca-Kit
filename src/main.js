@@ -1,15 +1,19 @@
-// MecaKit — Lógica principal de inventario personal para Ingeniería Mecatrónica
+// MecaKit — Lógica principal de inventario personal con Autenticación y Base de Datos en la Nube (Supabase RLS)
 import {
   DEFAULT_CATEGORIES,
-  loadState,
-  saveState,
-  resetStateToDemo
+  createEmptyAppState,
+  fetchUserCloudState,
+  seedSampleDataForUser,
+  mapInventoryRow,
+  mapCategoryRow,
+  mapComponentRow,
+  mapLoanRow
 } from "./data.js";
+import { supabase, REGISTER_USER_ENDPOINT } from "./supabaseClient.js";
 
-let state = loadState();
-if (!state.activeScreen) state.activeScreen = "inventory";
-if (!state.loanFilter) state.loanFilter = "Todos";
+let state = createEmptyAppState();
 let pendingConfirmAction = null;
+let isSyncingAuth = false;
 
 // --- Utilidades de Sanitización y Formato ---
 function escapeHtml(str = "") {
@@ -36,6 +40,103 @@ function showToast(message, icon = "✓") {
     toast.style.transform = "translateY(6px)";
     setTimeout(() => toast.remove(), 200);
   }, 2600);
+}
+
+// --- Feedback en la Pantalla de Autenticación ---
+function setAuthFeedback(message = "", type = "error") {
+  const box = document.getElementById("auth-feedback");
+  if (!box) return;
+  if (!message) {
+    box.className = "hidden mb-4 p-3 rounded-lg text-xs font-medium border";
+    box.textContent = "";
+    return;
+  }
+  if (type === "success") {
+    box.className =
+      "mb-4 p-3 rounded-lg text-xs font-medium border bg-[#EDF3EC] text-[#0F7B6C] border-[#B7DFD7]";
+  } else if (type === "info") {
+    box.className =
+      "mb-4 p-3 rounded-lg text-xs font-medium border bg-[#DDEBF1] text-[#0B6E99] border-[#B6D6E4]";
+  } else {
+    box.className =
+      "mb-4 p-3 rounded-lg text-xs font-medium border bg-[#FBE4E4] text-[#E03E3E] border-[#F5C6C6]";
+  }
+  box.textContent = message;
+}
+
+function switchAuthTab(mode) {
+  const isSignUp = mode === "signup";
+  const tabSignIn = document.getElementById("tab-auth-signin");
+  const tabSignUp = document.getElementById("tab-auth-signup");
+  const formSignIn = document.getElementById("signin-form");
+  const formSignUp = document.getElementById("signup-form");
+  const heading = document.getElementById("auth-heading");
+  const subheading = document.getElementById("auth-subheading");
+
+  setAuthFeedback("");
+
+  if (tabSignIn && tabSignUp) {
+    tabSignIn.setAttribute("aria-selected", String(!isSignUp));
+    tabSignUp.setAttribute("aria-selected", String(isSignUp));
+
+    tabSignIn.className = !isSignUp
+      ? "py-1.5 px-3 rounded-md font-semibold bg-white text-notion-text shadow-sm transition-all cursor-pointer"
+      : "py-1.5 px-3 rounded-md font-medium text-notion-muted hover:text-notion-text transition-all cursor-pointer";
+
+    tabSignUp.className = isSignUp
+      ? "py-1.5 px-3 rounded-md font-semibold bg-white text-notion-text shadow-sm transition-all cursor-pointer"
+      : "py-1.5 px-3 rounded-md font-medium text-notion-muted hover:text-notion-text transition-all cursor-pointer";
+  }
+
+  formSignIn?.classList.toggle("hidden", isSignUp);
+  formSignUp?.classList.toggle("hidden", !isSignUp);
+
+  if (heading && subheading) {
+    if (isSignUp) {
+      heading.textContent = "Crea tu cuenta personal en MecaKit";
+      subheading.textContent =
+        "Tendrás tu propio perfil independiente en la nube para guardar tus inventarios, componentes, ubicaciones y préstamos.";
+    } else {
+      heading.textContent = "Inicia sesión en tu MecaKit";
+      subheading.textContent =
+        "Accede desde cualquier dispositivo. Tus inventarios, componentes, ubicaciones y préstamos son privados y exclusivos de tu cuenta.";
+    }
+  }
+}
+
+async function handleAuthenticatedSession(sessionUser) {
+  if (!sessionUser || isSyncingAuth) return;
+  isSyncingAuth = true;
+  try {
+    setAuthFeedback("Cargando tus inventarios privados desde la nube...", "info");
+    const cloudData = await fetchUserCloudState(sessionUser);
+    state = {
+      ...createEmptyAppState(),
+      ...cloudData,
+      activeScreen: "inventory",
+      viewMode: "table",
+      activeCategory: "Todos",
+      loanFilter: "Todos",
+      searchQuery: ""
+    };
+
+    document.getElementById("auth-screen")?.classList.add("hidden");
+    document.getElementById("app-shell")?.classList.remove("hidden");
+    setAuthFeedback("");
+    renderAll();
+  } catch (err) {
+    console.error("Error cargando datos del usuario:", err);
+    setAuthFeedback("No se pudieron cargar los datos de la cuenta. Intenta de nuevo.", "error");
+  } finally {
+    isSyncingAuth = false;
+  }
+}
+
+function showUnauthenticatedScreen() {
+  state = createEmptyAppState();
+  closeDrawer();
+  document.getElementById("app-shell")?.classList.add("hidden");
+  document.getElementById("auth-screen")?.classList.remove("hidden");
 }
 
 // --- Helpers de Categorías Dinámicas ---
@@ -184,7 +285,14 @@ const UserInvalidFallback = (() => {
 function getActiveInventory() {
   return (
     state.inventories.find((inv) => inv.id === state.activeInventoryId) ||
-    state.inventories[0]
+    state.inventories[0] || {
+      id: "",
+      name: "Inventario General",
+      icon: "📦",
+      badge: state.profile.career || "Inventario Personal",
+      description: "Consulta en segundos tus componentes electrónicos y su ubicación física.",
+      isDefault: true
+    }
   );
 }
 
@@ -228,7 +336,8 @@ function switchScreen(screenName) {
 
 // --- Renderizado Completo de la Interfaz ---
 function renderAll() {
-  saveState(state);
+  if (!state.user) return;
+  renderUserProfile();
   renderScreensAndNavigationState();
   renderSidebar();
   renderActiveInventoryHeaderAndKPIs();
@@ -238,16 +347,40 @@ function renderAll() {
   renderLoansScreen();
 }
 
+function renderUserProfile() {
+  const fullName = state.profile?.fullName || "Estudiante";
+  const career = state.profile?.career || "Ing. Mecatrónica";
+  const email = state.profile?.email || state.user?.email || "";
+  const initials =
+    fullName
+      .split(" ")
+      .filter(Boolean)
+      .map((part) => part[0])
+      .join("")
+      .slice(0, 2)
+      .toUpperCase() || "U";
+
+  const avatarEl = document.getElementById("header-user-avatar");
+  const headerNameEl = document.getElementById("header-user-name");
+  const sidebarNameEl = document.getElementById("sidebar-user-name");
+  const sidebarCareerEl = document.getElementById("sidebar-user-career");
+  const sidebarEmailEl = document.getElementById("sidebar-user-email");
+
+  if (avatarEl) avatarEl.textContent = initials;
+  if (headerNameEl) headerNameEl.textContent = fullName;
+  if (sidebarNameEl) sidebarNameEl.textContent = fullName;
+  if (sidebarCareerEl) sidebarCareerEl.textContent = career;
+  if (sidebarEmailEl) sidebarEmailEl.textContent = `🔒 Cuenta: ${email}`;
+}
+
 function renderScreensAndNavigationState() {
   const isLoans = state.activeScreen === "loans";
   const inv = getActiveInventory();
   const pendingLoansCount = state.loans.filter((l) => l.status === "Pendiente").length;
 
-  // Mostrar/ocultar las dos pantallas independientes
   document.getElementById("screen-inventory")?.classList.toggle("hidden", isLoans);
   document.getElementById("screen-loans")?.classList.toggle("hidden", !isLoans);
 
-  // Actualizar Breadcrumb informativo en la barra superior
   const breadcrumb = document.getElementById("header-breadcrumb-current");
   if (breadcrumb) {
     breadcrumb.textContent = isLoans
@@ -255,7 +388,6 @@ function renderScreensAndNavigationState() {
       : `${inv.icon} ${inv.name}`;
   }
 
-  // Estado activo de los botones en la barra superior (Escritorio)
   const topInvBtn = document.getElementById("top-screen-inventory");
   const topLoansBtn = document.getElementById("top-screen-loans");
   const topLoansBadge = document.getElementById("top-loans-badge");
@@ -274,7 +406,6 @@ function renderScreensAndNavigationState() {
       : "px-2.5 py-1 rounded font-medium text-notion-muted hover:text-notion-text flex items-center gap-1.5 cursor-pointer transition-all";
   }
 
-  // Estado activo de la barra inferior móvil (Componentes vs Préstamos)
   const mobInvBtn = document.getElementById("mob-nav-inventory");
   const mobLoansBtn = document.getElementById("mob-nav-loans");
   const mobLoansBadge = document.getElementById("mob-loans-badge");
@@ -356,7 +487,6 @@ function renderSidebar() {
   document.getElementById("sidebar-agotados-badge").textContent = String(agotadosCount);
   document.getElementById("sidebar-total-units").textContent = `${totalUnitsAll} uds`;
 
-  // Resaltar estado en Control Rápido
   const navAllBtn = document.getElementById("nav-filter-all");
   const navAgotadosBtn = document.getElementById("nav-filter-agotados");
   if (navAllBtn && navAgotadosBtn) {
@@ -490,14 +620,20 @@ function renderInventoryContent() {
   if (filtered.length === 0) {
     container.innerHTML = `
       <div class="border border-dashed border-notion-border rounded-lg p-8 text-center bg-notion-sidebar/40">
-        <div class="text-2xl mb-2">🔍</div>
-        <h3 class="text-sm font-semibold text-notion-text">No se encontraron componentes</h3>
+        <div class="text-2xl mb-2">📦</div>
+        <h3 class="text-sm font-semibold text-notion-text">No hay componentes en esta vista</h3>
         <p class="text-xs text-notion-muted mt-1 max-w-md mx-auto">
-          No hay piezas que coincidan con tu búsqueda o filtro actual en <strong>${escapeHtml(
-            getActiveInventory().name
-          )}</strong>.
+          ${
+            state.searchQuery || state.activeCategory !== "Todos"
+              ? `No hay piezas que coincidan con tu búsqueda o filtro actual en <strong>${escapeHtml(
+                  getActiveInventory().name
+                )}</strong>.`
+              : `Tu inventario <strong>${escapeHtml(
+                  getActiveInventory().name
+                )}</strong> está listo. Anota tu primer componente electrónico o carga el kit de ejemplo.`
+          }
         </p>
-        <div class="mt-4 flex items-center justify-center gap-2">
+        <div class="mt-4 flex flex-wrap items-center justify-center gap-2">
           ${
             state.searchQuery || state.activeCategory !== "Todos"
               ? `<button type="button" id="btn-empty-reset-filters" class="px-3 py-1.5 text-xs font-medium bg-white border border-notion-border rounded hover:bg-notion-hover cursor-pointer">Ver todos los componentes</button>`
@@ -859,7 +995,6 @@ function renderLoansScreen() {
   if (kpiUnits) kpiUnits.textContent = String(unitsOut);
   if (kpiReturned) kpiReturned.textContent = String(returnedLoans.length);
 
-  // Actualizar estado de las píldoras de filtro de préstamos
   document.querySelectorAll(".loan-filter-btn").forEach((btn) => {
     const f = btn.getAttribute("data-loan-filter");
     const isSelected = f === state.loanFilter;
@@ -982,16 +1117,29 @@ function renderLoansScreen() {
   `;
 }
 
-// --- Acciones Interactivas: Stock +/- de un toque (PRD Req #2 & #4) ---
-function adjustComponentStock(compId, delta) {
+// --- Acciones Interactivas: Stock +/- de un toque sincronizado en Supabase (PRD Req #2 & #4) ---
+async function adjustComponentStock(compId, delta) {
   const comp = state.components.find((c) => c.id === compId);
   if (!comp) return;
 
   const nextQty = Math.max(0, Number(comp.quantity || 0) + delta);
   if (nextQty === comp.quantity) return;
 
+  const prevQty = comp.quantity;
   comp.quantity = nextQty;
   renderAll();
+
+  const { error } = await supabase
+    .from("components")
+    .update({ quantity: nextQty })
+    .eq("id", comp.id);
+
+  if (error) {
+    comp.quantity = prevQty;
+    renderAll();
+    showToast("No se pudo actualizar el stock en la nube", "⚠️");
+    return;
+  }
 
   if (nextQty === 0) {
     showToast(`${comp.model} quedó en 0 uds — Marcado como Agotado`, "⚠️");
@@ -1003,16 +1151,21 @@ function adjustComponentStock(compId, delta) {
   }
 }
 
-// --- Confirmación de Eliminación de Componente, Inventario y Categoría ---
+// --- Confirmación de Eliminación de Componente, Inventario y Categoría (Supabase) ---
 function promptDeleteComponent(compId) {
   const comp = state.components.find((c) => c.id === compId);
   if (!comp) return;
 
   askConfirmation({
     title: `¿Eliminar "${comp.name}" (${comp.model})?`,
-    message: `Se eliminará este componente (${comp.quantity} unidades en ${comp.location}) del inventario. ¿Estás seguro de que deseas continuar?`,
+    message: `Se eliminará este componente (${comp.quantity} unidades en ${comp.location}) de tu cuenta en la nube. ¿Deseas continuar?`,
     confirmText: "Sí, eliminar componente",
-    onConfirm: () => {
+    onConfirm: async () => {
+      const { error } = await supabase.from("components").delete().eq("id", compId);
+      if (error) {
+        showToast("Error al eliminar el componente", "⚠️");
+        return;
+      }
       state.components = state.components.filter((c) => c.id !== compId);
       closeDrawer();
       renderAll();
@@ -1030,14 +1183,20 @@ function promptDeleteInventory(invId) {
     title: `¿Eliminar el inventario "${inv.icon} ${inv.name}"?`,
     message:
       compCount > 0
-        ? `Este inventario contiene ${compCount} componente(s) registrado(s) que también se eliminarán. ¿Estás seguro de eliminar este inventario?`
+        ? `Este inventario contiene ${compCount} componente(s) registrado(s) que también se eliminarán de tu cuenta. ¿Estás seguro?`
         : `Se eliminará el inventario "${inv.name}". ¿Estás seguro de continuar?`,
     confirmText: "Sí, eliminar inventario",
-    onConfirm: () => {
+    onConfirm: async () => {
+      const { error } = await supabase.from("inventories").delete().eq("id", inv.id);
+      if (error) {
+        showToast("Error al eliminar el inventario", "⚠️");
+        return;
+      }
       state.components = state.components.filter((c) => c.inventoryId !== inv.id);
+      state.loans = state.loans.filter((l) => l.inventoryId !== inv.id);
       state.inventories = state.inventories.filter((i) => i.id !== inv.id);
       if (state.activeInventoryId === inv.id) {
-        state.activeInventoryId = "general";
+        state.activeInventoryId = state.inventories[0]?.id || "";
       }
       renderAll();
       showToast(`Inventario "${inv.name}" eliminado`, "🗑️");
@@ -1057,7 +1216,20 @@ function promptDeleteCategory(catName) {
         ? `Hay ${affected} componente(s) con esta categoría (pasarán a "Pasivos"). ¿Estás seguro de eliminar la categoría "${cat.name}"?`
         : `Se eliminará la categoría personalizada "${cat.name}". ¿Estás seguro?`,
     confirmText: "Sí, eliminar categoría",
-    onConfirm: () => {
+    onConfirm: async () => {
+      if (affected > 0) {
+        await supabase
+          .from("components")
+          .update({ category: "Pasivos" })
+          .eq("user_id", state.user.id)
+          .eq("category", catName);
+      }
+      await supabase
+        .from("categories")
+        .delete()
+        .eq("user_id", state.user.id)
+        .eq("name", catName);
+
       state.components.forEach((c) => {
         if (c.category === catName) c.category = "Pasivos";
       });
@@ -1264,9 +1436,7 @@ function openLoanDialog(preselectedCompId = "") {
 }
 
 // --- Inicialización de Eventos ---
-function initApp() {
-  renderAll();
-
+async function initApp() {
   // Configurar Light-Dismiss fallback en todos los <dialog closedby="any">
   const loanDialog = document.getElementById("loan-dialog");
   const invDialog = document.getElementById("inventory-dialog");
@@ -1279,10 +1449,172 @@ function initApp() {
   setupLightDismissFallback(confirmDialog);
 
   // Configurar validación accesible :user-invalid
+  UserInvalidFallback.init(document.getElementById("signin-form"));
+  UserInvalidFallback.init(document.getElementById("signup-form"));
   UserInvalidFallback.init(document.getElementById("component-form"));
   UserInvalidFallback.init(document.getElementById("loan-form"));
   UserInvalidFallback.init(document.getElementById("inventory-form"));
   UserInvalidFallback.init(document.getElementById("category-form"));
+
+  // --- Eventos de la Pantalla de Autenticación (Sign In / Sign Up) ---
+  document.getElementById("tab-auth-signin")?.addEventListener("click", () => {
+    switchAuthTab("signin");
+  });
+  document.getElementById("tab-auth-signup")?.addEventListener("click", () => {
+    switchAuthTab("signup");
+  });
+
+  // Mostrar / ocultar contraseña (autofill-sign-in-form & autofill-sign-up-form)
+  document.getElementById("btn-toggle-signin-pw")?.addEventListener("click", (e) => {
+    const input = document.getElementById("signin-password");
+    if (!input) return;
+    const isPw = input.type === "password";
+    input.type = isPw ? "text" : "password";
+    e.currentTarget.textContent = isPw ? "Ocultar contraseña" : "Mostrar contraseña";
+  });
+
+  document.getElementById("btn-toggle-signup-pw")?.addEventListener("click", (e) => {
+    const input = document.getElementById("signup-password");
+    if (!input) return;
+    const isPw = input.type === "password";
+    input.type = isPw ? "text" : "password";
+    e.currentTarget.textContent = isPw ? "Ocultar contraseña" : "Mostrar contraseña";
+  });
+
+  // Iniciar sesión con correo y contraseña
+  document.getElementById("signin-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    if (!form.checkValidity()) {
+      form.querySelector(":invalid")?.focus();
+      return;
+    }
+
+    const email = document.getElementById("signin-email").value.trim().toLowerCase();
+    const password = document.getElementById("signin-password").value;
+    const submitBtn = document.getElementById("btn-submit-signin");
+
+    if (submitBtn) submitBtn.disabled = true;
+    setAuthFeedback("Verificando credenciales...", "info");
+
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
+
+      if (error || !data.user) {
+        setAuthFeedback(
+          "Correo o contraseña incorrectos. Si aún no tienes cuenta, créala en la pestaña 'Crear cuenta'.",
+          "error"
+        );
+        return;
+      }
+
+      await handleAuthenticatedSession(data.user);
+      showToast(`Bienvenido(a), ${state.profile.fullName}`, "👋");
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
+  });
+
+  // Botones de acceso rápido para cuentas de demostración independientes
+  const loginDemoAccount = async (email, password, label) => {
+    const emailInput = document.getElementById("signin-email");
+    const pwInput = document.getElementById("signin-password");
+    if (emailInput) emailInput.value = email;
+    if (pwInput) pwInput.value = password;
+    setAuthFeedback(`Iniciando sesión en la cuenta independiente de ${label}...`, "info");
+
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error || !data.user) {
+      setAuthFeedback(error?.message || "No se pudo iniciar sesión en la cuenta demo.", "error");
+      return;
+    }
+    await handleAuthenticatedSession(data.user);
+    showToast(`Sesión iniciada como ${state.profile.fullName}`, "🔒");
+  };
+
+  document.getElementById("btn-demo-camilo")?.addEventListener("click", () => {
+    loginDemoAccount("camilo@mecakit.edu.co", "MecaKit2026!", "Camilo Rojas");
+  });
+
+  document.getElementById("btn-demo-valentina")?.addEventListener("click", () => {
+    loginDemoAccount("valentina@mecakit.edu.co", "MecaKit2026!", "Valentina Gómez");
+  });
+
+  // Crear cuenta nueva en Supabase
+  document.getElementById("signup-form")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    if (!form.checkValidity()) {
+      form.querySelector(":invalid")?.focus();
+      return;
+    }
+
+    const email = document.getElementById("signup-email").value.trim().toLowerCase();
+    const password = document.getElementById("signup-password").value;
+    const fullName = document.getElementById("signup-name").value.trim();
+    const career =
+      document.getElementById("signup-career").value.trim() || "Ing. Mecatrónica";
+    const includeDemo = document.getElementById("signup-seed-demo")?.checked;
+    const submitBtn = document.getElementById("btn-submit-signup");
+
+    if (submitBtn) submitBtn.disabled = true;
+    setAuthFeedback("Creando tu cuenta personal e inventario privado...", "info");
+
+    try {
+      const response = await fetch(REGISTER_USER_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password, fullName, career })
+      });
+
+      const payload = await response.json();
+      if (!response.ok || payload.error) {
+        setAuthFeedback(payload.error || "No se pudo registrar la cuenta.", "error");
+        return;
+      }
+
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password
+      });
+
+      if (error || !data.user) {
+        setAuthFeedback(
+          "Cuenta creada. Ahora puedes iniciar sesión con tu correo y contraseña.",
+          "success"
+        );
+        switchAuthTab("signin");
+        return;
+      }
+
+      if (includeDemo) {
+        setAuthFeedback("Cargando componentes de demostración en tu cuenta...", "info");
+        await seedSampleDataForUser(data.user);
+      }
+
+      await handleAuthenticatedSession(data.user);
+      form.reset();
+      showToast(`¡Cuenta creada para ${fullName}!`, "🎉");
+    } catch (err) {
+      console.error("Error registrando cuenta:", err);
+      setAuthFeedback("Error de conexión al crear la cuenta. Intenta nuevamente.", "error");
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
+  });
+
+  // Cerrar sesión
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    showUnauthenticatedScreen();
+    showToast("Has cerrado sesión de forma segura", "🔒");
+  };
+
+  document.getElementById("btn-logout-top")?.addEventListener("click", handleLogout);
+  document.getElementById("btn-logout-sidebar")?.addEventListener("click", handleLogout);
 
   // Eventos del diálogo de confirmación segura
   document
@@ -1445,18 +1777,30 @@ function initApp() {
     }
   });
 
-  // Delegación de eventos en la tabla de préstamos
-  document.getElementById("loans-container")?.addEventListener("click", (e) => {
+  // Delegación de eventos en la tabla de préstamos (Supabase)
+  document.getElementById("loans-container")?.addEventListener("click", async (e) => {
     const returnBtn = e.target.closest(".btn-return-loan");
     if (returnBtn) {
       const loanId = returnBtn.getAttribute("data-return-loan-id");
       const loan = state.loans.find((l) => l.id === loanId);
       if (!loan || loan.status === "Devuelto") return;
 
+      const { error: loanErr } = await supabase
+        .from("loans")
+        .update({ status: "Devuelto" })
+        .eq("id", loan.id);
+
+      if (loanErr) {
+        showToast("Error al actualizar el préstamo", "⚠️");
+        return;
+      }
+
       loan.status = "Devuelto";
       const comp = state.components.find((c) => c.id === loan.componentId);
       if (comp) {
-        comp.quantity = Number(comp.quantity || 0) + Number(loan.quantity || 1);
+        const nextQty = Number(comp.quantity || 0) + Number(loan.quantity || 1);
+        comp.quantity = nextQty;
+        await supabase.from("components").update({ quantity: nextQty }).eq("id", comp.id);
       }
       renderAll();
       showToast(
@@ -1469,6 +1813,11 @@ function initApp() {
     const delLoanBtn = e.target.closest(".btn-delete-loan");
     if (delLoanBtn) {
       const loanId = delLoanBtn.getAttribute("data-delete-loan-id");
+      const { error } = await supabase.from("loans").delete().eq("id", loanId);
+      if (error) {
+        showToast("No se pudo borrar el préstamo", "⚠️");
+        return;
+      }
       state.loans = state.loans.filter((l) => l.id !== loanId);
       renderAll();
       showToast("Registro de préstamo eliminado", "🗑️");
@@ -1502,8 +1851,8 @@ function initApp() {
       ?.classList.toggle("hidden", !e.target.checked);
   });
 
-  // Guardar Componente (Nuevo o Editado)
-  document.getElementById("component-form")?.addEventListener("submit", (e) => {
+  // Guardar Componente (Nuevo o Editado) en Supabase PostgreSQL
+  document.getElementById("component-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const form = e.currentTarget;
     if (!form.checkValidity()) {
@@ -1517,7 +1866,7 @@ function initApp() {
     const model = document.getElementById("comp-model").value.trim();
     const category = document.getElementById("comp-category").value;
     const inventoryId = document.getElementById("comp-inventory").value;
-    const quantity = Math.max(
+    let quantity = Math.max(
       0,
       parseInt(document.getElementById("comp-quantity").value || "0", 10)
     );
@@ -1528,71 +1877,103 @@ function initApp() {
     const borrowerName = document.getElementById("comp-loan-borrower").value.trim();
     const borrowerGroup = document.getElementById("comp-loan-group").value.trim();
 
+    if (instantLoan && borrowerName && quantity > 0) {
+      quantity -= 1;
+    }
+
     let savedCompId = id;
 
     if (id) {
-      const existing = state.components.find((c) => c.id === id);
-      if (existing) {
-        existing.name = name;
-        existing.model = model;
-        existing.category = category;
-        existing.inventoryId = inventoryId;
-        existing.quantity = quantity;
-        existing.location = location;
-        existing.notes = notes;
+      const { data: updatedRow, error } = await supabase
+        .from("components")
+        .update({
+          inventory_id: inventoryId,
+          name,
+          model,
+          category,
+          quantity,
+          location,
+          notes
+        })
+        .eq("id", id)
+        .select("*")
+        .single();
+
+      if (error || !updatedRow) {
+        showToast("Error al actualizar el componente en la nube", "⚠️");
+        return;
       }
+
+      const idx = state.components.findIndex((c) => c.id === id);
+      if (idx !== -1) state.components[idx] = mapComponentRow(updatedRow);
       showToast(`Componente actualizado: ${model}`, "✓");
     } else {
-      savedCompId = `comp-${Date.now()}`;
-      state.components.unshift({
-        id: savedCompId,
-        inventoryId,
-        name,
-        model,
-        category,
-        quantity,
-        location,
-        notes
-      });
+      const { data: insertedRow, error } = await supabase
+        .from("components")
+        .insert({
+          user_id: state.user.id,
+          inventory_id: inventoryId,
+          name,
+          model,
+          category,
+          quantity,
+          location,
+          notes
+        })
+        .select("*")
+        .single();
+
+      if (error || !insertedRow) {
+        showToast("Error al guardar el componente en la nube", "⚠️");
+        return;
+      }
+
+      const mapped = mapComponentRow(insertedRow);
+      savedCompId = mapped.id;
+      state.components.unshift(mapped);
       state.activeInventoryId = inventoryId;
       state.activeScreen = "inventory";
       showToast(`Componente registrado en MecaKit: ${model}`, "✨");
     }
 
     if (instantLoan && borrowerName) {
-      const targetComp = state.components.find((c) => c.id === savedCompId);
-      if (targetComp && targetComp.quantity > 0) {
-        targetComp.quantity -= 1;
-      }
       const today = new Date().toLocaleDateString("es-CO", {
         day: "2-digit",
         month: "short"
       });
-      state.loans.unshift({
-        id: `loan-${Date.now()}`,
-        componentId: savedCompId,
-        inventoryId,
-        componentName: `${name} (${model})`,
-        borrowerName,
-        borrowerGroup: borrowerGroup || "Compañero de carrera",
-        quantity: 1,
-        date: today,
-        status: "Pendiente",
-        notes: ""
-      });
+      const { data: loanRow } = await supabase
+        .from("loans")
+        .insert({
+          user_id: state.user.id,
+          component_id: savedCompId,
+          inventory_id: inventoryId,
+          component_name: `${name} (${model})`,
+          borrower_name: borrowerName,
+          borrower_group: borrowerGroup || "Compañero de carrera",
+          quantity: 1,
+          loan_date: today,
+          status: "Pendiente",
+          notes: ""
+        })
+        .select("*")
+        .single();
+
+      if (loanRow) {
+        state.loans.unshift(mapLoanRow(loanRow));
+      }
     }
 
     closeDrawer();
     renderAll();
   });
 
-  // Eliminar Componente desde el Drawer (con confirmación previa)
+  // Eliminar Componente desde el Drawer
   document.getElementById("btn-delete-component")?.addEventListener("click", () => {
     const id = document.getElementById("comp-id").value;
     if (id) promptDeleteComponent(id);
   });
 
-  // Modal de Añadir Categoría Personalizada (ej. Capacitores)
+  // Modal de Añadir Categoría Personalizada (Supabase)
   document.getElementById("btn-drawer-new-category")?.addEventListener("click", openCategoryDialog);
   document
     .getElementById("btn-close-cat-dialog")
@@ -1601,7 +1982,7 @@ function initApp() {
     .getElementById("btn-cancel-cat-dialog")
     ?.addEventListener("click", () => catDialog?.close());
 
-  document.getElementById("category-form")?.addEventListener("submit", (e) => {
+  document.getElementById("category-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const form = e.currentTarget;
     if (!form.checkValidity()) {
@@ -1624,12 +2005,24 @@ function initApp() {
       return;
     }
 
-    state.categories.push({
-      name,
-      icon,
-      color,
-      isDefault: false
-    });
+    const { data: catRow, error } = await supabase
+      .from("categories")
+      .insert({
+        user_id: state.user.id,
+        name,
+        icon,
+        color,
+        is_default: false
+      })
+      .select("*")
+      .single();
+
+    if (error || !catRow) {
+      showToast("No se pudo crear la categoría", "⚠️");
+      return;
+    }
+
+    state.categories.push(mapCategoryRow(catRow));
 
     catDialog?.close();
     renderAll();
@@ -1638,7 +2031,7 @@ function initApp() {
     showToast(`Categoría creada: ${icon} ${name}`, "🏷️");
   });
 
-  // Modal de Préstamo
+  // Modal de Préstamo (Supabase)
   document
     .getElementById("btn-open-loan-modal-top")
     ?.addEventListener("click", () => openLoanDialog());
@@ -1652,7 +2045,7 @@ function initApp() {
     .getElementById("btn-cancel-loan-dialog")
     ?.addEventListener("click", () => loanDialog?.close());
 
-  document.getElementById("loan-form")?.addEventListener("submit", (e) => {
+  document.getElementById("loan-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const form = e.currentTarget;
     if (!form.checkValidity()) {
@@ -1673,27 +2066,40 @@ function initApp() {
     if (!comp) return;
 
     const loanQty = Math.min(comp.quantity, qtyInput);
-    comp.quantity -= loanQty;
+    const nextCompQty = comp.quantity - loanQty;
 
-    state.loans.unshift({
-      id: `loan-${Date.now()}`,
-      componentId: comp.id,
-      inventoryId: comp.inventoryId,
-      componentName: `${comp.name} (${comp.model})`,
-      borrowerName,
-      borrowerGroup,
-      quantity: loanQty,
-      date: dateStr,
-      status: "Pendiente",
-      notes: ""
-    });
+    await supabase.from("components").update({ quantity: nextCompQty }).eq("id", comp.id);
+    comp.quantity = nextCompQty;
 
+    const { data: loanRow, error } = await supabase
+      .from("loans")
+      .insert({
+        user_id: state.user.id,
+        component_id: comp.id,
+        inventory_id: comp.inventoryId,
+        component_name: `${comp.name} (${comp.model})`,
+        borrower_name: borrowerName,
+        borrower_group: borrowerGroup,
+        quantity: loanQty,
+        loan_date: dateStr,
+        status: "Pendiente",
+        notes: ""
+      })
+      .select("*")
+      .single();
+
+    if (error || !loanRow) {
+      showToast("Error al registrar el préstamo", "⚠️");
+      return;
+    }
+
+    state.loans.unshift(mapLoanRow(loanRow));
     loanDialog?.close();
     renderAll();
     showToast(`Préstamo registrado a ${borrowerName} (-${loanQty} en stock)`, "🤝");
   });
 
-  // Modal de Crear o Renombrar Inventario por Proyecto (PRD Req #5)
+  // Modal de Crear o Renombrar Inventario por Proyecto (PRD Req #5 + Supabase)
   document.getElementById("btn-new-inventory")?.addEventListener("click", () => {
     closeMobileSidebar();
     openInventoryDialogForNew();
@@ -1712,7 +2118,7 @@ function initApp() {
     .getElementById("btn-cancel-inv-dialog")
     ?.addEventListener("click", () => invDialog?.close());
 
-  document.getElementById("inventory-form")?.addEventListener("submit", (e) => {
+  document.getElementById("inventory-form")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const form = e.currentTarget;
     if (!form.checkValidity()) {
@@ -1729,27 +2135,50 @@ function initApp() {
       `Inventario personalizado para el proyecto ${name}.`;
 
     if (editId) {
+      const { data: updatedInv, error } = await supabase
+        .from("inventories")
+        .update({ icon, name, badge, description })
+        .eq("id", editId)
+        .select("*")
+        .single();
+
+      if (error || !updatedInv) {
+        showToast("Error al actualizar el inventario", "⚠️");
+        return;
+      }
+
       const target = state.inventories.find((i) => i.id === editId);
       if (target) {
-        target.icon = icon;
-        target.name = name;
-        target.badge = badge;
-        target.description = description;
+        target.icon = updatedInv.icon;
+        target.name = updatedInv.name;
+        target.badge = updatedInv.badge;
+        target.description = updatedInv.description;
       }
       invDialog?.close();
       renderAll();
       showToast(`Inventario actualizado: ${icon} ${name}`, "✏️");
     } else {
-      const newInvId = `inv-${Date.now()}`;
-      state.inventories.push({
-        id: newInvId,
-        name,
-        icon,
-        badge,
-        description,
-        isDefault: false
-      });
-      state.activeInventoryId = newInvId;
+      const { data: createdInv, error } = await supabase
+        .from("inventories")
+        .insert({
+          user_id: state.user.id,
+          name,
+          icon,
+          badge,
+          description,
+          is_default: false
+        })
+        .select("*")
+        .single();
+
+      if (error || !createdInv) {
+        showToast("Error al crear el inventario", "⚠️");
+        return;
+      }
+
+      const mapped = mapInventoryRow(createdInv);
+      state.inventories.push(mapped);
+      state.activeInventoryId = mapped.id;
       state.activeCategory = "Todos";
       state.activeScreen = "inventory";
 
@@ -1759,29 +2188,37 @@ function initApp() {
     }
   });
 
-  // Eliminar Inventario de Proyecto Personalizado (con confirmación previa)
+  // Eliminar Inventario de Proyecto Personalizado
   document.getElementById("btn-delete-inventory")?.addEventListener("click", () => {
     promptDeleteInventory(state.activeInventoryId);
   });
 
-  // Restaurar datos de demostración (con confirmación previa)
+  // Cargar kit de ejemplo en la cuenta actual (con confirmación previa)
   document.getElementById("btn-reset-demo")?.addEventListener("click", () => {
     askConfirmation({
-      title: "¿Restaurar los datos de demostración?",
+      title: "¿Cargar kit de demostración en tu cuenta?",
       message:
-        "Se restablecerán los inventarios, categorías y componentes originales de ejemplo de Camilo.",
-      confirmText: "Sí, restaurar ejemplo",
-      onConfirm: () => {
-        state = resetStateToDemo();
+        "Se cargarán los inventarios, componentes y préstamos de ejemplo dentro de tu cuenta actual (sin afectar a ningún otro usuario).",
+      confirmText: "Sí, cargar kit ejemplo",
+      onConfirm: async () => {
+        showToast("Sincronizando kit de ejemplo en tu cuenta...", "⏳");
+        const refreshed = await seedSampleDataForUser(state.user);
+        state = {
+          ...state,
+          ...refreshed,
+          activeScreen: "inventory",
+          activeCategory: "Todos",
+          searchQuery: ""
+        };
         const sInput = document.getElementById("search-input");
         if (sInput) sInput.value = "";
         renderAll();
-        showToast("Datos de demostración restaurados", "🔄");
+        showToast("Kit de ejemplo cargado en tu cuenta", "🔄");
       }
     });
   });
 
-  // Navegación Móvil (Menú Lateral de 3 líneas ☰ y Barra Inferior sin duplicar Inventarios)
+  // Navegación Móvil
   const sidebar = document.getElementById("left-sidebar");
   const backdrop = document.getElementById("mobile-sidebar-backdrop");
 
@@ -1811,6 +2248,20 @@ function initApp() {
   document.getElementById("mob-nav-add")?.addEventListener("click", () => {
     closeMobileSidebar();
     openDrawerForNew();
+  });
+
+  // Verificar si ya existe una sesión activa en este navegador
+  const { data: sessionData } = await supabase.auth.getSession();
+  if (sessionData?.session?.user) {
+    await handleAuthenticatedSession(sessionData.session.user);
+  } else {
+    showUnauthenticatedScreen();
+  }
+
+  supabase.auth.onAuthStateChange((event, session) => {
+    if (event === "SIGNED_OUT" || !session?.user) {
+      showUnauthenticatedScreen();
+    }
   });
 }
 
