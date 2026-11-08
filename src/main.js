@@ -7,7 +7,8 @@ import {
   mapInventoryRow,
   mapCategoryRow,
   mapComponentRow,
-  mapLoanRow
+  mapLoanRow,
+  parseComponentNameAndModel
 } from "./data.js";
 import { supabase, REGISTER_USER_ENDPOINT } from "./supabaseClient.js";
 
@@ -39,7 +40,7 @@ function showToast(message, icon = "✓") {
     toast.style.opacity = "0";
     toast.style.transform = "translateY(6px)";
     setTimeout(() => toast.remove(), 200);
-  }, 2600);
+  }, 2800);
 }
 
 // --- Feedback en la Pantalla de Autenticación ---
@@ -117,6 +118,7 @@ async function handleAuthenticatedSession(sessionUser) {
       viewMode: "table",
       activeCategory: "Todos",
       loanFilter: "Todos",
+      loanInventoryFilter: "all",
       searchQuery: ""
     };
 
@@ -158,6 +160,48 @@ function getCategoryMeta(catName) {
 function getCategoryPillClass(catName) {
   const meta = getCategoryMeta(catName);
   return `notion-tag-${meta.color || "gray"}`;
+}
+
+// --- Helpers de Inventarios (General vs Personales) ---
+function getDefaultInventory() {
+  return state.inventories.find((i) => i.isDefault) || state.inventories[0] || null;
+}
+
+function getInventoryById(invId) {
+  if (!invId) return null;
+  return state.inventories.find((i) => i.id === invId) || null;
+}
+
+function resolveLoanInventoryMeta(loan) {
+  const found = getInventoryById(loan.inventoryId);
+  if (found) {
+    return {
+      id: found.id,
+      name: found.name,
+      icon: found.icon || "📦",
+      isDefault: Boolean(found.isDefault)
+    };
+  }
+  const byName = state.inventories.find(
+    (i) => i.name.toLowerCase() === String(loan.inventoryName || "").toLowerCase()
+  );
+  if (byName) {
+    return {
+      id: byName.id,
+      name: byName.name,
+      icon: byName.icon || "📦",
+      isDefault: Boolean(byName.isDefault)
+    };
+  }
+  const isGeneralName =
+    !loan.inventoryName ||
+    loan.inventoryName.toLowerCase() === "inventario general";
+  return {
+    id: loan.inventoryId || getDefaultInventory()?.id || "",
+    name: loan.inventoryName || "Inventario General",
+    icon: loan.inventoryIcon || (isGeneralName ? "📦" : "🤖"),
+    isDefault: isGeneralName
+  };
 }
 
 // --- Diálogo de Confirmación Segura antes de Eliminar ---
@@ -308,7 +352,7 @@ function getFilteredComponents() {
     if (state.activeCategory === "Agotados") {
       if (comp.quantity > 0) return false;
     } else if (state.activeCategory !== "Todos") {
-      if (comp.category !== state.activeCategory) return false;
+      if (comp.category.toLowerCase() !== state.activeCategory.toLowerCase()) return false;
     }
 
     if (!q) return true;
@@ -327,9 +371,28 @@ function getComponentActiveLoans(componentId) {
   );
 }
 
+function getLoansMatchingInventoryFilter(invFilter = state.loanInventoryFilter) {
+  if (!invFilter || invFilter === "all") {
+    return state.loans;
+  }
+  return state.loans.filter((loan) => {
+    const meta = resolveLoanInventoryMeta(loan);
+    if (invFilter === "general") {
+      return meta.isDefault;
+    }
+    if (invFilter === "personal") {
+      return !meta.isDefault;
+    }
+    return meta.id === invFilter;
+  });
+}
+
 // --- Cambio de Pantalla Independiente (Inventario vs Préstamos) ---
-function switchScreen(screenName) {
+function switchScreen(screenName, options = {}) {
   state.activeScreen = screenName === "loans" ? "loans" : "inventory";
+  if (options.loanInventoryFilter !== undefined) {
+    state.loanInventoryFilter = options.loanInventoryFilter;
+  }
   renderAll();
   document.getElementById("main-canvas")?.scrollTo({ top: 0, behavior: "smooth" });
 }
@@ -509,7 +572,12 @@ function renderActiveInventoryHeaderAndKPIs() {
   const comps = getInventoryComponents(inv.id);
   const totalUnits = comps.reduce((sum, c) => sum + Number(c.quantity || 0), 0);
   const agotados = comps.filter((c) => c.quantity === 0).length;
-  const activeLoans = state.loans.filter((l) => l.status === "Pendiente").length;
+
+  // Préstamos pendientes de este inventario activo y préstamos pendientes globales
+  const invActiveLoans = state.loans.filter(
+    (l) => l.status === "Pendiente" && resolveLoanInventoryMeta(l).id === inv.id
+  ).length;
+  const totalActiveLoans = state.loans.filter((l) => l.status === "Pendiente").length;
 
   document.getElementById("active-inv-icon").textContent = inv.icon;
   document.getElementById("active-inv-title").textContent = inv.name;
@@ -524,7 +592,16 @@ function renderActiveInventoryHeaderAndKPIs() {
   document.getElementById("kpi-total-refs").textContent = String(comps.length);
   document.getElementById("kpi-total-units").textContent = `${totalUnits} uds en stock`;
   document.getElementById("kpi-total-agotados").textContent = String(agotados);
-  document.getElementById("kpi-total-loans").textContent = String(activeLoans);
+  document.getElementById("kpi-total-loans").textContent = String(invActiveLoans);
+
+  const kpiLoansCard = document.getElementById("kpi-card-loans");
+  const kpiLoansSubtitle = kpiLoansCard?.querySelector("div.flex.items-baseline span:last-child");
+  if (kpiLoansSubtitle) {
+    kpiLoansSubtitle.textContent =
+      totalActiveLoans !== invActiveLoans
+        ? `en este inv. (${totalActiveLoans} total)`
+        : "pendientes aquí";
+  }
 }
 
 function renderCategoryPills() {
@@ -538,7 +615,9 @@ function renderCategoryPills() {
     { key: "Todos", label: `Todos (${comps.length})`, pillClass: "", isCustom: false },
     ...getCategories().map((cat) => ({
       key: cat.name,
-      label: `${cat.icon} ${cat.name} (${comps.filter((c) => c.category === cat.name).length})`,
+      label: `${cat.icon} ${cat.name} (${
+        comps.filter((c) => c.category.toLowerCase() === cat.name.toLowerCase()).length
+      })`,
       pillClass: getCategoryPillClass(cat.name),
       isCustom: !cat.isDefault
     })),
@@ -552,7 +631,7 @@ function renderCategoryPills() {
 
   const pillsHtml = pills
     .map((p) => {
-      const isSelected = state.activeCategory === p.key;
+      const isSelected = state.activeCategory.toLowerCase() === p.key.toLowerCase();
       const activeRing = isSelected
         ? "ring-2 ring-[#37352F] font-semibold"
         : "opacity-85 hover:opacity-100";
@@ -976,23 +1055,123 @@ function renderLocationsView(components) {
   `;
 }
 
-// --- Renderizado de la Pantalla Independiente de Seguimiento de Préstamos (PRD Req #6) ---
+// --- Renderizado de la Pantalla Independiente de Seguimiento de Préstamos (General y Personales) ---
+function renderLoansInventoryFilterBar() {
+  const bar = document.getElementById("loan-inventory-filter-bar");
+  if (!bar) return;
+
+  const generalInv = getDefaultInventory();
+  const personalInvs = state.inventories.filter((i) => !i.isDefault);
+
+  // Si el filtro actual apunta a un inventario que ya no existe, volver a 'all'
+  if (
+    state.loanInventoryFilter !== "all" &&
+    state.loanInventoryFilter !== "general" &&
+    state.loanInventoryFilter !== "personal" &&
+    !state.inventories.some((i) => i.id === state.loanInventoryFilter)
+  ) {
+    state.loanInventoryFilter = "all";
+  }
+
+  const allCount = state.loans.length;
+  const generalCount = getLoansMatchingInventoryFilter("general").length;
+  const personalTotalCount = getLoansMatchingInventoryFilter("personal").length;
+
+  const filterItems = [
+    {
+      key: "all",
+      label: `🌐 Todos los inventarios (${allCount})`,
+      badgeType: "neutral"
+    },
+    {
+      key: "general",
+      label: `${generalInv?.icon || "📦"} ${generalInv?.name || "Inventario General"} (${generalCount})`,
+      badgeType: "general"
+    }
+  ];
+
+  if (personalInvs.length > 1) {
+    filterItems.push({
+      key: "personal",
+      label: `🗂️ Todos los Personales (${personalTotalCount})`,
+      badgeType: "personal"
+    });
+  }
+
+  for (const pInv of personalInvs) {
+    const count = getLoansMatchingInventoryFilter(pInv.id).length;
+    filterItems.push({
+      key: pInv.id,
+      label: `${pInv.icon} ${pInv.name} (${count})`,
+      badgeType: "personal-item"
+    });
+  }
+
+  bar.innerHTML = filterItems
+    .map((item) => {
+      const isSelected = state.loanInventoryFilter === item.key;
+      const cls = isSelected
+        ? "bg-[#37352F] text-white font-semibold shadow-sm ring-2 ring-[#37352F]/20"
+        : "bg-white text-notion-text border border-notion-border hover:bg-notion-hover";
+      return `
+        <button
+          type="button"
+          data-loan-inv-filter="${escapeHtml(item.key)}"
+          class="loan-inv-filter-btn px-2.5 py-1 rounded text-xs transition-all cursor-pointer ${cls}"
+        >
+          ${escapeHtml(item.label)}
+        </button>
+      `;
+    })
+    .join("");
+}
+
 function renderLoansScreen() {
   const container = document.getElementById("loans-container");
   const pill = document.getElementById("loans-pending-pill");
   if (!container || !pill) return;
 
-  const pendingLoans = state.loans.filter((l) => l.status === "Pendiente");
-  const returnedLoans = state.loans.filter((l) => l.status === "Devuelto");
+  renderLoansInventoryFilterBar();
+
+  const allPendingLoans = state.loans.filter((l) => l.status === "Pendiente");
+  const generalPendingCount = allPendingLoans.filter(
+    (l) => resolveLoanInventoryMeta(l).isDefault
+  ).length;
+  const personalPendingCount = allPendingLoans.filter(
+    (l) => !resolveLoanInventoryMeta(l).isDefault
+  ).length;
+
+  // Préstamos dentro del alcance de inventario seleccionado
+  const scopedLoans = getLoansMatchingInventoryFilter(state.loanInventoryFilter);
+  const pendingLoans = scopedLoans.filter((l) => l.status === "Pendiente");
+  const returnedLoans = scopedLoans.filter((l) => l.status === "Devuelto");
   const unitsOut = pendingLoans.reduce((sum, l) => sum + Number(l.quantity || 1), 0);
 
-  pill.textContent = `${pendingLoans.length} PENDIENTE${pendingLoans.length === 1 ? "" : "S"}`;
+  pill.textContent = `${allPendingLoans.length} PENDIENTE${allPendingLoans.length === 1 ? "" : "S"}`;
 
   const kpiActive = document.getElementById("loans-kpi-active");
+  const kpiBreakdown = document.getElementById("loans-kpi-breakdown");
   const kpiUnits = document.getElementById("loans-kpi-units");
+  const kpiScopeLabel = document.getElementById("loans-kpi-scope-label");
   const kpiReturned = document.getElementById("loans-kpi-returned");
+
   if (kpiActive) kpiActive.textContent = String(pendingLoans.length);
+  if (kpiBreakdown) {
+    kpiBreakdown.textContent = `${generalPendingCount} en Inv. General · ${personalPendingCount} en Personales`;
+  }
   if (kpiUnits) kpiUnits.textContent = String(unitsOut);
+  if (kpiScopeLabel) {
+    let scopeName = "Todos los inventarios";
+    if (state.loanInventoryFilter === "general") {
+      scopeName = "📦 Inventario General";
+    } else if (state.loanInventoryFilter === "personal") {
+      scopeName = "🗂️ Inventarios Personales";
+    } else {
+      const inv = getInventoryById(state.loanInventoryFilter);
+      if (inv) scopeName = `${inv.icon} ${inv.name}`;
+    }
+    kpiScopeLabel.textContent = `Vista: ${scopeName}`;
+  }
   if (kpiReturned) kpiReturned.textContent = String(returnedLoans.length);
 
   document.querySelectorAll(".loan-filter-btn").forEach((btn) => {
@@ -1010,7 +1189,7 @@ function renderLoansScreen() {
     }
   });
 
-  const filteredLoans = state.loans.filter((l) => {
+  const filteredLoans = scopedLoans.filter((l) => {
     if (state.loanFilter === "Todos") return true;
     return l.status === state.loanFilter;
   });
@@ -1020,7 +1199,18 @@ function renderLoansScreen() {
       <div class="p-8 text-center text-xs text-notion-muted">
         <div class="text-2xl mb-2">🤝</div>
         <div class="font-semibold text-notion-text">No hay préstamos en esta vista</div>
-        <p class="mt-1">Usa el botón <strong>"Registrar préstamo"</strong> cuando le prestes un componente a un compañero.</p>
+        <p class="mt-1">
+          ${
+            state.loanInventoryFilter !== "all" || state.loanFilter !== "Todos"
+              ? "Prueba cambiando el filtro de inventario o de estado para ver todos los registros."
+              : 'Usa el botón <strong>"Registrar préstamo"</strong> cuando le prestes un componente a un compañero.'
+          }
+        </p>
+        ${
+          state.loanInventoryFilter !== "all" || state.loanFilter !== "Todos"
+            ? `<button type="button" id="btn-reset-loan-filters" class="mt-3 px-3 py-1.5 text-xs font-medium bg-notion-sidebar hover:bg-notion-hover border border-notion-border rounded text-notion-text cursor-pointer">Ver todos los préstamos</button>`
+            : ""
+        }
       </div>
     `;
     return;
@@ -1031,7 +1221,8 @@ function renderLoansScreen() {
       <table class="w-full text-left text-xs border-collapse">
         <thead>
           <tr class="bg-notion-sidebar text-notion-muted border-b border-notion-border font-semibold">
-            <th class="py-2.5 px-3">Componente Prestado</th>
+            <th class="py-2.5 px-3">Componente Prestado &amp; Categoría</th>
+            <th class="py-2.5 px-3">Inventario (General / Personal)</th>
             <th class="py-2.5 px-3">Compañero / Referencia</th>
             <th class="py-2.5 px-3 text-center">Cant.</th>
             <th class="py-2.5 px-3">Fecha</th>
@@ -1045,16 +1236,61 @@ function renderLoansScreen() {
               const isPending = loan.status === "Pendiente";
               const initials = loan.borrowerName
                 .split(" ")
+                .filter(Boolean)
                 .map((n) => n[0])
                 .join("")
                 .slice(0, 2)
                 .toUpperCase();
+
+              const invMeta = resolveLoanInventoryMeta(loan);
+              const invTypeBadge = invMeta.isDefault
+                ? `<span class="text-[10px] px-1.5 py-0.2 rounded bg-[#DDEBF1] text-[#0B6E99] font-medium">General</span>`
+                : `<span class="text-[10px] px-1.5 py-0.2 rounded bg-[#EAE4F2] text-[#6940A5] font-medium">Personal</span>`;
+
+              const catName = loan.componentCategory || "Pasivos";
+              const catExists = getCategories().some(
+                (c) => c.name.toLowerCase() === catName.toLowerCase()
+              );
+              const catIcon = loan.categoryIcon || getCategoryMeta(catName).icon || "📦";
+              const catColor = loan.categoryColor || getCategoryMeta(catName).color || "blue";
+
               return `
                 <tr class="hover:bg-notion-sidebar/40 transition-colors ${
-                  !isPending ? "opacity-60" : ""
+                  !isPending ? "bg-notion-sidebar/20" : ""
                 }">
-                  <td class="py-2.5 px-3 font-medium text-notion-text">
-                    🤝 ${escapeHtml(loan.componentName)}
+                  <td class="py-2.5 px-3">
+                    <div class="font-semibold text-notion-text flex items-center gap-1.5">
+                      <span>🤝</span>
+                      <span>${escapeHtml(loan.componentTitle || loan.componentName)}</span>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-1.5 mt-1">
+                      ${
+                        loan.componentModel
+                          ? `<span class="font-mono text-[10px] px-1.5 py-0.2 rounded bg-notion-sidebar border border-notion-border text-notion-text">${escapeHtml(
+                              loan.componentModel
+                            )}</span>`
+                          : ""
+                      }
+                      <span class="px-1.5 py-0.2 rounded text-[10px] font-medium notion-tag-${escapeHtml(
+                        catColor
+                      )}">
+                        ${escapeHtml(catIcon)} ${escapeHtml(catName)}${
+                !catExists && isPending ? " (se recuperará al devolver)" : ""
+              }
+                      </span>
+                    </div>
+                  </td>
+                  <td class="py-2.5 px-3">
+                    <button
+                      type="button"
+                      data-goto-inv-id="${escapeHtml(invMeta.id)}"
+                      title="Ir a ver el inventario ${escapeHtml(invMeta.name)}"
+                      class="btn-goto-loan-inv inline-flex flex-wrap items-center gap-1.5 px-2 py-1 rounded border border-notion-border bg-white hover:bg-notion-hover text-notion-text font-medium cursor-pointer"
+                    >
+                      <span>${escapeHtml(invMeta.icon)}</span>
+                      <span>${escapeHtml(invMeta.name)}</span>
+                      ${invTypeBadge}
+                    </button>
                   </td>
                   <td class="py-2.5 px-3">
                     <div class="flex items-center gap-2">
@@ -1085,7 +1321,7 @@ function renderLoansScreen() {
                     ${
                       isPending
                         ? `<span class="px-2 py-0.5 rounded text-[11px] font-medium bg-[#FBF3DB] text-[#8F6B00]">Pendiente de devolución</span>`
-                        : `<span class="px-2 py-0.5 rounded text-[11px] font-medium bg-[#EDF3EC] text-[#0F7B6C]">✓ Devuelto al taller</span>`
+                        : `<span class="px-2 py-0.5 rounded text-[11px] font-medium bg-[#EDF3EC] text-[#0F7B6C]">✓ Devuelto al stock</span>`
                     }
                   </td>
                   <td class="py-2.5 px-3 text-right">
@@ -1098,13 +1334,22 @@ function renderLoansScreen() {
                           >
                             ✓ Marcar devuelto (+${loan.quantity} stock)
                           </button>`
-                        : `<button
-                            type="button"
-                            data-delete-loan-id="${escapeHtml(loan.id)}"
-                            class="btn-delete-loan text-[11px] text-notion-muted hover:text-[#E03E3E] cursor-pointer"
-                          >
-                            Borrar registro
-                          </button>`
+                        : `<div class="inline-flex items-center gap-2">
+                            <button
+                              type="button"
+                              data-goto-inv-id="${escapeHtml(invMeta.id)}"
+                              class="btn-goto-loan-inv text-[11px] text-notion-blue hover:underline font-medium cursor-pointer"
+                            >
+                              Ver en inventario →
+                            </button>
+                            <button
+                              type="button"
+                              data-delete-loan-id="${escapeHtml(loan.id)}"
+                              class="btn-delete-loan text-[11px] text-notion-muted hover:text-[#E03E3E] cursor-pointer"
+                            >
+                              Borrar
+                            </button>
+                          </div>`
                     }
                   </td>
                 </tr>
@@ -1115,6 +1360,207 @@ function renderLoansScreen() {
       </table>
     </div>
   `;
+}
+
+// --- Proceso Completo de Devolución de Préstamo (Restituye Stock, Componente y Categoría Eliminada) ---
+async function returnLoanToInventory(loanId, triggerBtn = null) {
+  const loan = state.loans.find((l) => l.id === loanId);
+  if (!loan || loan.status === "Devuelto") return;
+
+  if (triggerBtn) triggerBtn.disabled = true;
+
+  try {
+    // 1. Resolver o recuperar el inventario destino (Inventario General o Inventario Personal)
+    let targetInv =
+      getInventoryById(loan.inventoryId) ||
+      state.inventories.find(
+        (i) => i.name.toLowerCase() === String(loan.inventoryName || "").toLowerCase()
+      );
+
+    if (!targetInv) {
+      if (
+        loan.inventoryName &&
+        loan.inventoryName.toLowerCase() !== "inventario general"
+      ) {
+        const { data: recreatedInv } = await supabase
+          .from("inventories")
+          .insert({
+            user_id: state.user.id,
+            name: loan.inventoryName,
+            icon: loan.inventoryIcon || "🤖",
+            badge: "Inventario Personal",
+            description: `Inventario personal recuperado al devolver ${loan.componentTitle || loan.componentName}.`,
+            is_default: false
+          })
+          .select("*")
+          .single();
+
+        if (recreatedInv) {
+          targetInv = mapInventoryRow(recreatedInv);
+          state.inventories.push(targetInv);
+        }
+      }
+      if (!targetInv) {
+        targetInv = getDefaultInventory();
+      }
+    }
+
+    const targetInvId = targetInv.id;
+
+    // 2. Verificar si la categoría original del componente fue eliminada mientras estaba prestado
+    const parsedName = parseComponentNameAndModel(loan.componentName);
+    const compTitle = (loan.componentTitle || parsedName.title).trim();
+    const compModel = (loan.componentModel || parsedName.model).trim();
+
+    let existingComp =
+      state.components.find((c) => c.id === loan.componentId) ||
+      state.components.find(
+        (c) =>
+          c.inventoryId === targetInvId &&
+          c.name.toLowerCase() === compTitle.toLowerCase() &&
+          c.model.toLowerCase() === compModel.toLowerCase()
+      );
+
+    const desiredCategoryName = (
+      loan.componentCategory ||
+      existingComp?.category ||
+      "Pasivos"
+    ).trim();
+
+    let categoryObj = getCategories().find(
+      (c) => c.name.toLowerCase() === desiredCategoryName.toLowerCase()
+    );
+    let categoryRecovered = false;
+
+    if (!categoryObj) {
+      const catIcon = loan.categoryIcon || "🏷️";
+      const catColor = loan.categoryColor || "teal";
+
+      const { data: insertedCat } = await supabase
+        .from("categories")
+        .upsert(
+          {
+            user_id: state.user.id,
+            name: desiredCategoryName,
+            icon: catIcon,
+            color: catColor,
+            is_default: false
+          },
+          { onConflict: "user_id,name" }
+        )
+        .select("*")
+        .single();
+
+      categoryObj = insertedCat
+        ? mapCategoryRow(insertedCat)
+        : {
+            name: desiredCategoryName,
+            icon: catIcon,
+            color: catColor,
+            isDefault: false
+          };
+
+      state.categories.push(categoryObj);
+      categoryRecovered = true;
+    }
+
+    const finalCategoryName = categoryObj.name;
+    const returnQty = Math.max(1, Number(loan.quantity || 1));
+    let finalCompId = existingComp?.id || null;
+
+    // 3. Reintegrar las unidades al componente existente o recrear el componente si fue eliminado
+    if (existingComp) {
+      const nextQty = Number(existingComp.quantity || 0) + returnQty;
+      const { data: updatedCompRow, error: compErr } = await supabase
+        .from("components")
+        .update({
+          quantity: nextQty,
+          category: finalCategoryName,
+          inventory_id: targetInvId
+        })
+        .eq("id", existingComp.id)
+        .select("*")
+        .single();
+
+      if (compErr) {
+        showToast("Error al actualizar el stock del componente", "⚠️");
+        return;
+      }
+
+      existingComp.quantity = updatedCompRow ? Number(updatedCompRow.quantity) : nextQty;
+      existingComp.category = finalCategoryName;
+      existingComp.inventoryId = targetInvId;
+      finalCompId = existingComp.id;
+    } else {
+      // El componente fue eliminado mientras estaba prestado -> reincorporarlo al inventario correspondiente
+      const { data: recreatedCompRow, error: insertCompErr } = await supabase
+        .from("components")
+        .insert({
+          user_id: state.user.id,
+          inventory_id: targetInvId,
+          name: compTitle,
+          model: compModel,
+          category: finalCategoryName,
+          quantity: returnQty,
+          location: loan.componentLocation || "Caja General",
+          notes: loan.componentNotes || ""
+        })
+        .select("*")
+        .single();
+
+      if (insertCompErr || !recreatedCompRow) {
+        showToast("No se pudo reincorporar el componente al inventario", "⚠️");
+        return;
+      }
+
+      const mappedComp = mapComponentRow(recreatedCompRow);
+      state.components.unshift(mappedComp);
+      finalCompId = mappedComp.id;
+    }
+
+    // 4. Marcar el préstamo como Devuelto y vincularlo al componente e inventario actualizados
+    const { error: loanErr } = await supabase
+      .from("loans")
+      .update({
+        status: "Devuelto",
+        component_id: finalCompId,
+        inventory_id: targetInvId,
+        component_category: finalCategoryName
+      })
+      .eq("id", loan.id);
+
+    if (loanErr) {
+      showToast("Error al actualizar el estado del préstamo", "⚠️");
+      return;
+    }
+
+    loan.status = "Devuelto";
+    loan.componentId = finalCompId;
+    loan.inventoryId = targetInvId;
+    loan.componentCategory = finalCategoryName;
+
+    // Sincronizar el inventario activo para que al volver al inventario se vea el componente devuelto
+    state.activeInventoryId = targetInvId;
+    if (state.activeCategory === "Agotados") {
+      state.activeCategory = "Todos";
+    }
+
+    renderAll();
+
+    if (categoryRecovered) {
+      showToast(
+        `Devuelto (+${returnQty} stock) en ${targetInv.name} · Categoría "${finalCategoryName}" recuperada`,
+        "🏷️"
+      );
+    } else {
+      showToast(
+        `Devuelto por ${loan.borrowerName}: +${returnQty} ud(s) reintegradas a ${targetInv.name}`,
+        "🤝"
+      );
+    }
+  } finally {
+    if (triggerBtn) triggerBtn.disabled = false;
+  }
 }
 
 // --- Acciones Interactivas: Stock +/- de un toque sincronizado en Supabase (PRD Req #2 & #4) ---
@@ -1156,11 +1602,49 @@ function promptDeleteComponent(compId) {
   const comp = state.components.find((c) => c.id === compId);
   if (!comp) return;
 
+  const activeLoans = getComponentActiveLoans(comp.id);
+  const catMeta = getCategoryMeta(comp.category);
+  const invMeta = getInventoryById(comp.inventoryId) || getActiveInventory();
+
   askConfirmation({
     title: `¿Eliminar "${comp.name}" (${comp.model})?`,
-    message: `Se eliminará este componente (${comp.quantity} unidades en ${comp.location}) de tu cuenta en la nube. ¿Deseas continuar?`,
+    message:
+      activeLoans.length > 0
+        ? `Este componente tiene ${activeLoans.length} préstamo(s) pendiente(s). Si lo eliminas ahora, cuando te lo devuelvan se reincorporará automáticamente al inventario "${invMeta.name}". ¿Deseas continuar?`
+        : `Se eliminará este componente (${comp.quantity} unidades en ${comp.location}) de tu cuenta. ¿Deseas continuar?`,
     confirmText: "Sí, eliminar componente",
     onConfirm: async () => {
+      // Antes de eliminar el componente, respaldar sus metadatos exactos en cualquier préstamo pendiente
+      if (activeLoans.length > 0) {
+        await supabase
+          .from("loans")
+          .update({
+            component_title: comp.name,
+            component_model: comp.model,
+            component_category: comp.category,
+            category_icon: catMeta.icon || "📦",
+            category_color: catMeta.color || "blue",
+            component_location: comp.location,
+            component_notes: comp.notes || "",
+            inventory_name: invMeta.name,
+            inventory_icon: invMeta.icon || "📦"
+          })
+          .eq("component_id", comp.id)
+          .eq("status", "Pendiente");
+
+        for (const l of activeLoans) {
+          l.componentTitle = comp.name;
+          l.componentModel = comp.model;
+          l.componentCategory = comp.category;
+          l.categoryIcon = catMeta.icon || "📦";
+          l.categoryColor = catMeta.color || "blue";
+          l.componentLocation = comp.location;
+          l.componentNotes = comp.notes || "";
+          l.inventoryName = invMeta.name;
+          l.inventoryIcon = invMeta.icon || "📦";
+        }
+      }
+
       const { error } = await supabase.from("components").delete().eq("id", compId);
       if (error) {
         showToast("Error al eliminar el componente", "⚠️");
@@ -1193,10 +1677,12 @@ function promptDeleteInventory(invId) {
         return;
       }
       state.components = state.components.filter((c) => c.inventoryId !== inv.id);
-      state.loans = state.loans.filter((l) => l.inventoryId !== inv.id);
       state.inventories = state.inventories.filter((i) => i.id !== inv.id);
       if (state.activeInventoryId === inv.id) {
         state.activeInventoryId = state.inventories[0]?.id || "";
+      }
+      if (state.loanInventoryFilter === inv.id) {
+        state.loanInventoryFilter = "all";
       }
       renderAll();
       showToast(`Inventario "${inv.name}" eliminado`, "🗑️");
@@ -1205,38 +1691,88 @@ function promptDeleteInventory(invId) {
 }
 
 function promptDeleteCategory(catName) {
-  const cat = getCategories().find((c) => c.name === catName);
+  const cat = getCategories().find(
+    (c) => c.name.toLowerCase() === String(catName || "").toLowerCase()
+  );
   if (!cat || cat.isDefault) return;
 
-  const affected = state.components.filter((c) => c.category === catName).length;
+  const compsInCat = state.components.filter(
+    (c) => c.category.toLowerCase() === cat.name.toLowerCase()
+  );
+  const affectedCount = compsInCat.length;
+
   askConfirmation({
     title: `¿Eliminar la categoría "${cat.icon} ${cat.name}"?`,
     message:
-      affected > 0
-        ? `Hay ${affected} componente(s) con esta categoría (pasarán a "Pasivos"). ¿Estás seguro de eliminar la categoría "${cat.name}"?`
-        : `Se eliminará la categoría personalizada "${cat.name}". ¿Estás seguro?`,
+      affectedCount > 0
+        ? `Hay ${affectedCount} componente(s) en "${cat.name}". Si alguno está prestado actualmente, al devolverlo se recuperará automáticamente la categoría "${cat.name}" junto con el componente.`
+        : `Se eliminará la categoría personalizada "${cat.name}". Si tienes algún componente prestado de esta categoría, se recuperará cuando lo devuelvan.`,
     confirmText: "Sí, eliminar categoría",
     onConfirm: async () => {
-      if (affected > 0) {
+      // 1. Asegurar que todos los préstamos pendientes de componentes en esta categoría guarden su categoría original
+      const compIdsInCat = compsInCat.map((c) => c.id);
+      if (compIdsInCat.length > 0) {
+        await supabase
+          .from("loans")
+          .update({
+            component_category: cat.name,
+            category_icon: cat.icon || "🏷️",
+            category_color: cat.color || "teal"
+          })
+          .in("component_id", compIdsInCat)
+          .eq("status", "Pendiente");
+
+        state.loans.forEach((l) => {
+          if (l.status === "Pendiente" && compIdsInCat.includes(l.componentId)) {
+            l.componentCategory = cat.name;
+            l.categoryIcon = cat.icon || "🏷️";
+            l.categoryColor = cat.color || "teal";
+          }
+        });
+      }
+
+      // 2. Separar componentes que están 100% prestados (stock 0 con préstamo activo) de los que tienen stock en taller
+      const fullyLoanedOutCompIds = compsInCat
+        .filter((c) => c.quantity === 0 && getComponentActiveLoans(c.id).length > 0)
+        .map((c) => c.id);
+
+      const inStockCompIds = compsInCat
+        .filter((c) => !fullyLoanedOutCompIds.includes(c.id))
+        .map((c) => c.id);
+
+      // Los componentes 100% prestados se retiran temporalmente del listado activo y se reincorporarán junto con su categoría al ser devueltos
+      if (fullyLoanedOutCompIds.length > 0) {
+        await supabase.from("components").delete().in("id", fullyLoanedOutCompIds);
+        state.components = state.components.filter(
+          (c) => !fullyLoanedOutCompIds.includes(c.id)
+        );
+      }
+
+      // Los componentes que aún tienen unidades físicas en taller pasan temporalmente a "Pasivos"
+      if (inStockCompIds.length > 0) {
         await supabase
           .from("components")
           .update({ category: "Pasivos" })
-          .eq("user_id", state.user.id)
-          .eq("category", catName);
+          .in("id", inStockCompIds);
+        state.components.forEach((c) => {
+          if (inStockCompIds.includes(c.id)) c.category = "Pasivos";
+        });
       }
+
       await supabase
         .from("categories")
         .delete()
         .eq("user_id", state.user.id)
-        .eq("name", catName);
+        .eq("name", cat.name);
 
-      state.components.forEach((c) => {
-        if (c.category === catName) c.category = "Pasivos";
-      });
-      state.categories = getCategories().filter((c) => c.name !== catName);
-      if (state.activeCategory === catName) state.activeCategory = "Todos";
+      state.categories = getCategories().filter(
+        (c) => c.name.toLowerCase() !== cat.name.toLowerCase()
+      );
+      if (state.activeCategory.toLowerCase() === cat.name.toLowerCase()) {
+        state.activeCategory = "Todos";
+      }
       renderAll();
-      showToast(`Categoría "${catName}" eliminada`, "🗑️");
+      showToast(`Categoría "${cat.name}" eliminada`, "🗑️");
     }
   });
 }
@@ -1248,8 +1784,9 @@ function populateDrawerCategorySelect(selectedCatName) {
 
   const cats = getCategories();
   const target =
-    selectedCatName && cats.some((c) => c.name === selectedCatName)
-      ? selectedCatName
+    selectedCatName &&
+    cats.some((c) => c.name.toLowerCase() === selectedCatName.toLowerCase())
+      ? cats.find((c) => c.name.toLowerCase() === selectedCatName.toLowerCase()).name
       : cats[0]?.name || "Sensores";
 
   select.innerHTML = cats
@@ -1399,32 +1936,108 @@ function openCategoryDialog() {
   document.getElementById("cat-name").focus();
 }
 
-// --- Modal de Préstamos (PRD Req #6) ---
-function openLoanDialog(preselectedCompId = "") {
-  const dialog = document.getElementById("loan-dialog");
+// --- Modal de Préstamos con Selección de Inventario General / Personal (PRD Req #6) ---
+function populateLoanComponentOptions(selectedInvFilter = "all", preselectedCompId = "") {
   const select = document.getElementById("loan-component-select");
-  const form = document.getElementById("loan-form");
-  if (!dialog || !select || !form) return;
+  if (!select) return;
 
-  form.reset();
-  const availableComps = state.components.filter((c) => c.quantity > 0);
+  const availableComps = state.components.filter((c) => {
+    if (c.quantity <= 0) return false;
+    if (!selectedInvFilter || selectedInvFilter === "all") return true;
+    return c.inventoryId === selectedInvFilter;
+  });
 
   if (availableComps.length === 0) {
+    select.innerHTML = `<option value="">Sin componentes con stock > 0 en este inventario</option>`;
+    return;
+  }
+
+  if (!selectedInvFilter || selectedInvFilter === "all") {
+    // Agrupar visualmente por Inventario General e Inventarios Personales
+    const groupsHtml = state.inventories
+      .map((inv) => {
+        const invComps = availableComps.filter((c) => c.inventoryId === inv.id);
+        if (invComps.length === 0) return "";
+        const groupLabel = `${inv.icon} ${inv.name} (${
+          inv.isDefault ? "Inventario General" : "Inventario Personal"
+        })`;
+        const options = invComps
+          .map((c) => {
+            const selected = c.id === preselectedCompId ? "selected" : "";
+            return `<option value="${escapeHtml(c.id)}" ${selected}>${escapeHtml(
+              c.name
+            )} (${escapeHtml(c.model)}) — Disp: ${c.quantity}</option>`;
+          })
+          .join("");
+        return `<optgroup label="${escapeHtml(groupLabel)}">${options}</optgroup>`;
+      })
+      .filter(Boolean)
+      .join("");
+    select.innerHTML = groupsHtml;
+  } else {
+    select.innerHTML = availableComps
+      .map((c) => {
+        const selected = c.id === preselectedCompId ? "selected" : "";
+        return `<option value="${escapeHtml(c.id)}" ${selected}>${escapeHtml(
+          c.name
+        )} (${escapeHtml(c.model)}) — Disp: ${c.quantity}</option>`;
+      })
+      .join("");
+  }
+}
+
+function openLoanDialog(preselectedCompId = "") {
+  const dialog = document.getElementById("loan-dialog");
+  const invSelect = document.getElementById("loan-inventory-select");
+  const compSelect = document.getElementById("loan-component-select");
+  const form = document.getElementById("loan-form");
+  if (!dialog || !compSelect || !form) return;
+
+  form.reset();
+  const allAvailable = state.components.filter((c) => c.quantity > 0);
+
+  if (allAvailable.length === 0) {
     showToast("No hay componentes con stock > 0 para prestar", "⚠️");
     return;
   }
 
-  select.innerHTML = availableComps
-    .map((c) => {
-      const inv = state.inventories.find((i) => i.id === c.inventoryId);
-      const selected = c.id === preselectedCompId ? "selected" : "";
-      return `<option value="${escapeHtml(c.id)}" ${selected}>${escapeHtml(
-        c.name
-      )} (${escapeHtml(c.model)}) — Disp: ${c.quantity} [${escapeHtml(
-        inv ? inv.name : "General"
-      )}]</option>`;
-    })
-    .join("");
+  let initialInvFilter = "all";
+  if (preselectedCompId) {
+    const preComp = state.components.find((c) => c.id === preselectedCompId);
+    if (preComp) initialInvFilter = preComp.inventoryId;
+  } else if (state.activeScreen === "loans") {
+    if (
+      state.loanInventoryFilter !== "all" &&
+      state.loanInventoryFilter !== "general" &&
+      state.loanInventoryFilter !== "personal"
+    ) {
+      initialInvFilter = state.loanInventoryFilter;
+    } else if (state.loanInventoryFilter === "general") {
+      initialInvFilter = getDefaultInventory()?.id || "all";
+    }
+  } else if (state.activeInventoryId) {
+    const hasStockInActive = allAvailable.some(
+      (c) => c.inventoryId === state.activeInventoryId
+    );
+    initialInvFilter = hasStockInActive ? state.activeInventoryId : "all";
+  }
+
+  if (invSelect) {
+    invSelect.innerHTML = [
+      `<option value="all" ${
+        initialInvFilter === "all" ? "selected" : ""
+      }>🌐 Todos mis inventarios (${allAvailable.length} disp.)</option>`,
+      ...state.inventories.map((inv) => {
+        const count = allAvailable.filter((c) => c.inventoryId === inv.id).length;
+        const typeLabel = inv.isDefault ? "General" : "Personal";
+        return `<option value="${escapeHtml(inv.id)}" ${
+          initialInvFilter === inv.id ? "selected" : ""
+        }>${escapeHtml(inv.icon)} ${escapeHtml(inv.name)} [${typeLabel}] (${count} disp.)</option>`;
+      })
+    ].join("");
+  }
+
+  populateLoanComponentOptions(initialInvFilter, preselectedCompId);
 
   const today = new Date().toLocaleDateString("es-CO", {
     day: "2-digit",
@@ -1638,7 +2251,7 @@ async function initApp() {
     switchScreen("inventory");
   });
   document.getElementById("top-screen-loans")?.addEventListener("click", () => {
-    switchScreen("loans");
+    switchScreen("loans", { loanInventoryFilter: "all" });
   });
   document.getElementById("btn-back-to-inventory")?.addEventListener("click", () => {
     switchScreen("inventory");
@@ -1706,7 +2319,10 @@ async function initApp() {
   document.getElementById("kpi-card-all")?.addEventListener("click", () => setCategoryFilter("Todos"));
   document.getElementById("nav-filter-agotados")?.addEventListener("click", () => setCategoryFilter("Agotados"));
   document.getElementById("kpi-card-agotados")?.addEventListener("click", () => setCategoryFilter("Agotados"));
-  document.getElementById("kpi-card-loans")?.addEventListener("click", () => switchScreen("loans"));
+  document.getElementById("kpi-card-loans")?.addEventListener("click", () => {
+    // Al abrir Préstamos desde un inventario específico, filtrar inicialmente por ese inventario
+    switchScreen("loans", { loanInventoryFilter: state.activeInventoryId || "all" });
+  });
 
   // Píldoras de categoría (Filtrar, eliminar categoría personalizada o añadir nueva)
   document.getElementById("category-pills-bar")?.addEventListener("click", (e) => {
@@ -1727,7 +2343,15 @@ async function initApp() {
     renderAll();
   });
 
-  // Filtros en la pantalla independiente de Préstamos
+  // Filtro por inventario en la pantalla independiente de Préstamos (General vs Personales)
+  document.getElementById("loan-inventory-filter-bar")?.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-loan-inv-filter]");
+    if (!btn) return;
+    state.loanInventoryFilter = btn.getAttribute("data-loan-inv-filter") || "all";
+    renderLoansScreen();
+  });
+
+  // Filtros de estado en la pantalla independiente de Préstamos
   document.getElementById("loan-filter-pills")?.addEventListener("click", (e) => {
     const btn = e.target.closest(".loan-filter-btn");
     if (!btn) return;
@@ -1777,36 +2401,30 @@ async function initApp() {
     }
   });
 
-  // Delegación de eventos en la tabla de préstamos (Supabase)
+  // Delegación de eventos en la tabla de préstamos (Devolución con recuperación de stock y categoría)
   document.getElementById("loans-container")?.addEventListener("click", async (e) => {
+    if (e.target.closest("#btn-reset-loan-filters")) {
+      state.loanInventoryFilter = "all";
+      state.loanFilter = "Todos";
+      renderLoansScreen();
+      return;
+    }
+
+    const gotoInvBtn = e.target.closest(".btn-goto-loan-inv");
+    if (gotoInvBtn) {
+      const targetInvId = gotoInvBtn.getAttribute("data-goto-inv-id");
+      if (targetInvId && state.inventories.some((i) => i.id === targetInvId)) {
+        state.activeInventoryId = targetInvId;
+      }
+      state.activeCategory = "Todos";
+      switchScreen("inventory");
+      return;
+    }
+
     const returnBtn = e.target.closest(".btn-return-loan");
     if (returnBtn) {
       const loanId = returnBtn.getAttribute("data-return-loan-id");
-      const loan = state.loans.find((l) => l.id === loanId);
-      if (!loan || loan.status === "Devuelto") return;
-
-      const { error: loanErr } = await supabase
-        .from("loans")
-        .update({ status: "Devuelto" })
-        .eq("id", loan.id);
-
-      if (loanErr) {
-        showToast("Error al actualizar el préstamo", "⚠️");
-        return;
-      }
-
-      loan.status = "Devuelto";
-      const comp = state.components.find((c) => c.id === loan.componentId);
-      if (comp) {
-        const nextQty = Number(comp.quantity || 0) + Number(loan.quantity || 1);
-        comp.quantity = nextQty;
-        await supabase.from("components").update({ quantity: nextQty }).eq("id", comp.id);
-      }
-      renderAll();
-      showToast(
-        `Devuelto por ${loan.borrowerName}: +${loan.quantity} ud(s) sumadas al stock`,
-        "🤝"
-      );
+      await returnLoanToInventory(loanId, returnBtn);
       return;
     }
 
@@ -1846,9 +2464,18 @@ async function initApp() {
   });
 
   document.getElementById("comp-instant-loan")?.addEventListener("change", (e) => {
+    const checked = e.target.checked;
     document
       .getElementById("instant-loan-fields")
-      ?.classList.toggle("hidden", !e.target.checked);
+      ?.classList.toggle("hidden", !checked);
+    const borrowerInput = document.getElementById("comp-loan-borrower");
+    if (borrowerInput) {
+      if (checked) {
+        borrowerInput.setAttribute("required", "true");
+      } else {
+        borrowerInput.removeAttribute("required");
+      }
+    }
   });
 
   // Guardar Componente (Nuevo o Editado) en Supabase PostgreSQL
@@ -1881,6 +2508,8 @@ async function initApp() {
       quantity -= 1;
     }
 
+    const catMeta = getCategoryMeta(category);
+    const invMeta = getInventoryById(inventoryId) || getActiveInventory();
     let savedCompId = id;
 
     if (id) {
@@ -1906,6 +2535,45 @@ async function initApp() {
 
       const idx = state.components.findIndex((c) => c.id === id);
       if (idx !== -1) state.components[idx] = mapComponentRow(updatedRow);
+
+      // Si el componente editado tiene préstamos pendientes, sincronizar sus metadatos
+      const pendingForComp = state.loans.filter(
+        (l) => l.componentId === id && l.status === "Pendiente"
+      );
+      if (pendingForComp.length > 0) {
+        await supabase
+          .from("loans")
+          .update({
+            inventory_id: inventoryId,
+            component_name: `${name} (${model})`,
+            component_title: name,
+            component_model: model,
+            component_category: category,
+            category_icon: catMeta.icon || "📦",
+            category_color: catMeta.color || "blue",
+            component_location: location,
+            component_notes: notes,
+            inventory_name: invMeta.name,
+            inventory_icon: invMeta.icon || "📦"
+          })
+          .eq("component_id", id)
+          .eq("status", "Pendiente");
+
+        pendingForComp.forEach((l) => {
+          l.inventoryId = inventoryId;
+          l.componentName = `${name} (${model})`;
+          l.componentTitle = name;
+          l.componentModel = model;
+          l.componentCategory = category;
+          l.categoryIcon = catMeta.icon || "📦";
+          l.categoryColor = catMeta.color || "blue";
+          l.componentLocation = location;
+          l.componentNotes = notes;
+          l.inventoryName = invMeta.name;
+          l.inventoryIcon = invMeta.icon || "📦";
+        });
+      }
+
       showToast(`Componente actualizado: ${model}`, "✓");
     } else {
       const { data: insertedRow, error } = await supabase
@@ -1948,6 +2616,15 @@ async function initApp() {
           component_id: savedCompId,
           inventory_id: inventoryId,
           component_name: `${name} (${model})`,
+          component_title: name,
+          component_model: model,
+          component_category: category,
+          category_icon: catMeta.icon || "📦",
+          category_color: catMeta.color || "blue",
+          component_location: location,
+          component_notes: notes,
+          inventory_name: invMeta.name,
+          inventory_icon: invMeta.icon || "📦",
           borrower_name: borrowerName,
           borrower_group: borrowerGroup || "Compañero de carrera",
           quantity: 1,
@@ -2031,7 +2708,13 @@ async function initApp() {
     showToast(`Categoría creada: ${icon} ${name}`, "🏷️");
   });
 
-  // Modal de Préstamo (Supabase)
+  // Modal de Préstamo (con selector de Inventario General / Personal)
+  document
+    .getElementById("loan-inventory-select")
+    ?.addEventListener("change", (e) => {
+      populateLoanComponentOptions(e.target.value, "");
+    });
+
   document
     .getElementById("btn-open-loan-modal-top")
     ?.addEventListener("click", () => openLoanDialog());
@@ -2063,13 +2746,27 @@ async function initApp() {
     const dateStr = document.getElementById("loan-date").value.trim() || "Hoy";
 
     const comp = state.components.find((c) => c.id === compId);
-    if (!comp) return;
+    if (!comp || comp.quantity <= 0) {
+      showToast("Selecciona un componente con unidades disponibles", "⚠️");
+      return;
+    }
 
     const loanQty = Math.min(comp.quantity, qtyInput);
     const nextCompQty = comp.quantity - loanQty;
 
-    await supabase.from("components").update({ quantity: nextCompQty }).eq("id", comp.id);
+    const { error: compErr } = await supabase
+      .from("components")
+      .update({ quantity: nextCompQty })
+      .eq("id", comp.id);
+
+    if (compErr) {
+      showToast("No se pudo descontar el stock del componente", "⚠️");
+      return;
+    }
     comp.quantity = nextCompQty;
+
+    const catMeta = getCategoryMeta(comp.category);
+    const invMeta = getInventoryById(comp.inventoryId) || getActiveInventory();
 
     const { data: loanRow, error } = await supabase
       .from("loans")
@@ -2078,6 +2775,15 @@ async function initApp() {
         component_id: comp.id,
         inventory_id: comp.inventoryId,
         component_name: `${comp.name} (${comp.model})`,
+        component_title: comp.name,
+        component_model: comp.model,
+        component_category: comp.category,
+        category_icon: catMeta.icon || "📦",
+        category_color: catMeta.color || "blue",
+        component_location: comp.location,
+        component_notes: comp.notes || "",
+        inventory_name: invMeta.name,
+        inventory_icon: invMeta.icon || "📦",
         borrower_name: borrowerName,
         borrower_group: borrowerGroup,
         quantity: loanQty,
@@ -2096,7 +2802,10 @@ async function initApp() {
     state.loans.unshift(mapLoanRow(loanRow));
     loanDialog?.close();
     renderAll();
-    showToast(`Préstamo registrado a ${borrowerName} (-${loanQty} en stock)`, "🤝");
+    showToast(
+      `Préstamo registrado a ${borrowerName} (-${loanQty} en ${invMeta.name})`,
+      "🤝"
+    );
   });
 
   // Modal de Crear o Renombrar Inventario por Proyecto (PRD Req #5 + Supabase)
@@ -2154,6 +2863,20 @@ async function initApp() {
         target.badge = updatedInv.badge;
         target.description = updatedInv.description;
       }
+
+      // Sincronizar nombre e ícono en los préstamos asociados a este inventario
+      await supabase
+        .from("loans")
+        .update({ inventory_name: name, inventory_icon: icon })
+        .eq("inventory_id", editId);
+
+      state.loans.forEach((l) => {
+        if (l.inventoryId === editId) {
+          l.inventoryName = name;
+          l.inventoryIcon = icon;
+        }
+      });
+
       invDialog?.close();
       renderAll();
       showToast(`Inventario actualizado: ${icon} ${name}`, "✏️");
@@ -2208,6 +2931,7 @@ async function initApp() {
           ...refreshed,
           activeScreen: "inventory",
           activeCategory: "Todos",
+          loanInventoryFilter: "all",
           searchQuery: ""
         };
         const sInput = document.getElementById("search-input");
@@ -2243,7 +2967,7 @@ async function initApp() {
   document.getElementById("mob-nav-loans")?.addEventListener("click", () => {
     closeMobileSidebar();
     closeDrawer();
-    switchScreen("loans");
+    switchScreen("loans", { loanInventoryFilter: "all" });
   });
   document.getElementById("mob-nav-add")?.addEventListener("click", () => {
     closeMobileSidebar();

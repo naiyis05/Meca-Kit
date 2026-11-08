@@ -207,6 +207,15 @@ export const DEMO_LOANS_TEMPLATE = [
     compKey: "comp-2",
     invKey: "general",
     componentName: "Sensor Ultrasónico de Distancia (HC-SR04)",
+    componentTitle: "Sensor Ultrasónico de Distancia",
+    componentModel: "HC-SR04",
+    componentCategory: "Sensores",
+    categoryIcon: "📡",
+    categoryColor: "blue",
+    componentLocation: "Caja Sensores · Gaveta 1",
+    componentNotes: "Rango 2cm a 400cm, alimentación 5V DC.",
+    inventoryName: "Inventario General",
+    inventoryIcon: "📦",
     borrowerName: "Mateo Ríos",
     borrowerGroup: "Lab Robótica · Grupo 2",
     quantity: 1,
@@ -218,6 +227,15 @@ export const DEMO_LOANS_TEMPLATE = [
     compKey: "comp-4",
     invKey: "general",
     componentName: "Micro Servomotor 9g 180° (TowerPro SG90)",
+    componentTitle: "Micro Servomotor 9g 180°",
+    componentModel: "TowerPro SG90",
+    componentCategory: "Actuadores",
+    categoryIcon: "🦾",
+    categoryColor: "orange",
+    componentLocation: "Caja Organizadora A · Gaveta 3",
+    componentNotes: "Incluye crucetas plásticas y tornillos.",
+    inventoryName: "Inventario General",
+    inventoryIcon: "📦",
     borrowerName: "Valentina Gómez",
     borrowerGroup: "Mecatrónica 5.º Sem",
     quantity: 1,
@@ -239,7 +257,8 @@ export function createEmptyAppState() {
     activeInventoryId: "",
     viewMode: "table",
     activeCategory: "Todos",
-    loanFilter: "Todos",
+    loanFilter: "Todos", // 'Todos' | 'Pendiente' | 'Devuelto'
+    loanInventoryFilter: "all", // 'all' | 'general' | 'personal' | <inventoryId>
     searchQuery: "",
     categories: structuredClone(DEFAULT_CATEGORIES),
     inventories: [],
@@ -282,12 +301,38 @@ export function mapComponentRow(row) {
   };
 }
 
+// Extrae nombre y modelo desde "Nombre (Modelo)" si un registro antiguo no tenía component_title separado
+export function parseComponentNameAndModel(combined = "") {
+  const str = String(combined || "").trim();
+  const match = str.match(/^(.*)\s+\(([^)]+)\)$/);
+  if (match) {
+    return {
+      title: match[1].trim() || str,
+      model: match[2].trim() || "S/M"
+    };
+  }
+  return {
+    title: str || "Componente Devuelto",
+    model: "Estándar"
+  };
+}
+
 export function mapLoanRow(row) {
+  const parsed = parseComponentNameAndModel(row.component_name);
   return {
     id: row.id,
-    componentId: row.component_id,
-    inventoryId: row.inventory_id,
+    componentId: row.component_id || null,
+    inventoryId: row.inventory_id || null,
     componentName: row.component_name,
+    componentTitle: row.component_title || parsed.title,
+    componentModel: row.component_model || parsed.model,
+    componentCategory: row.component_category || "Pasivos",
+    categoryIcon: row.category_icon || "📦",
+    categoryColor: row.category_color || "blue",
+    componentLocation: row.component_location || "Caja General",
+    componentNotes: row.component_notes || "",
+    inventoryName: row.inventory_name || "Inventario General",
+    inventoryIcon: row.inventory_icon || "📦",
     borrowerName: row.borrower_name,
     borrowerGroup: row.borrower_group || "",
     quantity: Number(row.quantity ?? 1),
@@ -446,7 +491,7 @@ export async function seedSampleDataForUser(authUser) {
     }
   }
 
-  // Insertar préstamos de ejemplo
+  // Insertar préstamos de ejemplo con metadatos completos para devolución segura
   for (const loanTpl of DEMO_LOANS_TEMPLATE) {
     const invId = invKeyToId.get(loanTpl.invKey);
     const compId = compKeyToId.get(loanTpl.compKey) || null;
@@ -456,6 +501,15 @@ export async function seedSampleDataForUser(authUser) {
       component_id: compId,
       inventory_id: invId,
       component_name: loanTpl.componentName,
+      component_title: loanTpl.componentTitle,
+      component_model: loanTpl.componentModel,
+      component_category: loanTpl.componentCategory,
+      category_icon: loanTpl.categoryIcon,
+      category_color: loanTpl.categoryColor,
+      component_location: loanTpl.componentLocation,
+      component_notes: loanTpl.componentNotes,
+      inventory_name: loanTpl.inventoryName,
+      inventory_icon: loanTpl.inventoryIcon,
       borrower_name: loanTpl.borrowerName,
       borrower_group: loanTpl.borrowerGroup,
       quantity: loanTpl.quantity,
