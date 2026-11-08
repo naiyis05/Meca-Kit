@@ -205,19 +205,71 @@ function resolveLoanInventoryMeta(loan) {
 }
 
 // --- Diálogo de Confirmación Segura antes de Eliminar ---
-function askConfirmation({ title, message, confirmText = "Sí, eliminar definitivamente", onConfirm }) {
+function askConfirmation({
+  title,
+  message,
+  confirmText = "Sí, eliminar definitivamente",
+  optionsHtml = "",
+  onSetupOptions = null,
+  onConfirm
+}) {
   const dialog = document.getElementById("confirm-delete-dialog");
   const titleEl = document.getElementById("confirm-delete-title");
   const msgEl = document.getElementById("confirm-delete-message");
+  const optionsEl = document.getElementById("confirm-delete-options");
   const acceptBtn = document.getElementById("btn-accept-confirm-delete");
   if (!dialog || !titleEl || !msgEl || !acceptBtn) return;
 
   titleEl.textContent = title;
   msgEl.textContent = message;
   acceptBtn.textContent = confirmText;
-  pendingConfirmAction = onConfirm;
+  acceptBtn.className =
+    "px-3.5 py-1.5 text-xs font-semibold bg-[#E03E3E] hover:bg-[#c53030] text-white rounded cursor-pointer";
 
+  if (optionsEl) {
+    if (optionsHtml) {
+      optionsEl.innerHTML = optionsHtml;
+      optionsEl.classList.remove("hidden");
+      if (typeof onSetupOptions === "function") {
+        onSetupOptions(optionsEl, acceptBtn);
+      }
+    } else {
+      optionsEl.innerHTML = "";
+      optionsEl.classList.add("hidden");
+    }
+  }
+
+  pendingConfirmAction = onConfirm;
   dialog.showModal();
+}
+
+async function ensureOtrosCategory() {
+  let otrosCat = getCategories().find((c) => c.name.toLowerCase() === "otros");
+  if (otrosCat) return otrosCat;
+
+  const { data: insertedCat } = await supabase
+    .from("categories")
+    .upsert(
+      {
+        user_id: state.user.id,
+        name: "Otros",
+        icon: "📦",
+        color: "gray",
+        is_default: false
+      },
+      { onConflict: "user_id,name" }
+    )
+    .select("*")
+    .single();
+
+  otrosCat = insertedCat
+    ? mapCategoryRow(insertedCat)
+    : { name: "Otros", icon: "📦", color: "gray", isDefault: false };
+
+  if (!state.categories.some((c) => c.name.toLowerCase() === "otros")) {
+    state.categories.push(otrosCat);
+  }
+  return otrosCat;
 }
 
 // --- Modern Web Guidance: light-dismiss-a-dialog fallback ---
@@ -1598,52 +1650,209 @@ async function adjustComponentStock(compId, delta) {
 }
 
 // --- Confirmación de Eliminación de Componente, Inventario y Categoría (Supabase) ---
+async function backupPendingLoansForComponents(compsToBackup) {
+  for (const comp of compsToBackup) {
+    const activeLoans = getComponentActiveLoans(comp.id);
+    if (activeLoans.length === 0) continue;
+    const catMeta = getCategoryMeta(comp.category);
+    const invMeta = getInventoryById(comp.inventoryId) || getActiveInventory();
+
+    await supabase
+      .from("loans")
+      .update({
+        component_title: comp.name,
+        component_model: comp.model,
+        component_category: comp.category,
+        category_icon: catMeta.icon || "📦",
+        category_color: catMeta.color || "blue",
+        component_location: comp.location,
+        component_notes: comp.notes || "",
+        inventory_name: invMeta.name,
+        inventory_icon: invMeta.icon || "📦"
+      })
+      .eq("component_id", comp.id)
+      .eq("status", "Pendiente");
+
+    for (const l of activeLoans) {
+      l.componentTitle = comp.name;
+      l.componentModel = comp.model;
+      l.componentCategory = comp.category;
+      l.categoryIcon = catMeta.icon || "📦";
+      l.categoryColor = catMeta.color || "blue";
+      l.componentLocation = comp.location;
+      l.componentNotes = comp.notes || "";
+      l.inventoryName = invMeta.name;
+      l.inventoryIcon = invMeta.icon || "📦";
+    }
+  }
+}
+
 function promptDeleteComponent(compId) {
   const comp = state.components.find((c) => c.id === compId);
   if (!comp) return;
 
   const activeLoans = getComponentActiveLoans(comp.id);
-  const catMeta = getCategoryMeta(comp.category);
   const invMeta = getInventoryById(comp.inventoryId) || getActiveInventory();
+  const hasStock = Number(comp.quantity || 0) > 0;
+
+  const availableCategories = getCategories();
+  const availableInventories = state.inventories;
+
+  const optionsHtml = hasStock
+    ? `
+      <div class="rounded-lg border border-notion-border bg-notion-sidebar/60 p-3 space-y-2.5 text-xs">
+        <p class="font-semibold text-notion-text">
+          ¿Qué deseas hacer con las <span class="font-mono font-bold">${comp.quantity}</span> unidad(es) de "${escapeHtml(comp.name)}"?
+        </p>
+
+        <label class="flex items-start gap-2 p-2 rounded border border-notion-border bg-white cursor-pointer hover:border-notion-blue">
+          <input type="radio" name="del-comp-action" value="move" class="mt-0.5 text-notion-blue focus:ring-notion-blue" />
+          <div class="flex-1 space-y-1.5">
+            <div class="font-semibold text-notion-text">1. Pasar a otro lugar (categoría o inventario)</div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+              <select id="del-comp-target-cat" class="w-full text-[11px] py-1 px-2 border border-notion-border rounded bg-notion-sidebar/60 text-notion-text">
+                ${availableCategories
+                  .map(
+                    (c) =>
+                      `<option value="${escapeHtml(c.name)}" ${
+                        c.name.toLowerCase() === comp.category.toLowerCase() ? "selected" : ""
+                      }>${escapeHtml(c.icon)} ${escapeHtml(c.name)}</option>`
+                  )
+                  .join("")}
+              </select>
+              <select id="del-comp-target-inv" class="w-full text-[11px] py-1 px-2 border border-notion-border rounded bg-notion-sidebar/60 text-notion-text">
+                ${availableInventories
+                  .map(
+                    (inv) =>
+                      `<option value="${escapeHtml(inv.id)}" ${
+                        inv.id === comp.inventoryId ? "selected" : ""
+                      }>${escapeHtml(inv.icon)} ${escapeHtml(inv.name)}</option>`
+                  )
+                  .join("")}
+              </select>
+            </div>
+          </div>
+        </label>
+
+        <label class="flex items-start gap-2 p-2 rounded border border-notion-border bg-white cursor-pointer hover:border-notion-blue">
+          <input type="radio" name="del-comp-action" value="otros" class="mt-0.5 text-notion-blue focus:ring-notion-blue" />
+          <div class="flex-1">
+            <div class="font-semibold text-notion-text">2. Dejarlos en "📦 Otros"</div>
+            <div class="text-[11px] text-notion-muted">Conserva las ${comp.quantity} unidades moviéndolas a la categoría general "📦 Otros".</div>
+          </div>
+        </label>
+
+        <label class="flex items-start gap-2 p-2 rounded border border-notion-border bg-white cursor-pointer hover:border-[#E03E3E]">
+          <input type="radio" name="del-comp-action" value="delete" checked class="mt-0.5 text-[#E03E3E] focus:ring-[#E03E3E]" />
+          <div class="flex-1">
+            <div class="font-semibold text-[#E03E3E]">3. Eliminarlos también definitivamente</div>
+            <div class="text-[11px] text-notion-muted">Se eliminará el componente y sus ${comp.quantity} unidad(es) en stock.</div>
+          </div>
+        </label>
+      </div>
+    `
+    : "";
 
   askConfirmation({
     title: `¿Eliminar "${comp.name}" (${comp.model})?`,
     message:
       activeLoans.length > 0
-        ? `Este componente tiene ${activeLoans.length} préstamo(s) pendiente(s). Si lo eliminas ahora, cuando te lo devuelvan se reincorporará automáticamente al inventario "${invMeta.name}". ¿Deseas continuar?`
-        : `Se eliminará este componente (${comp.quantity} unidades en ${comp.location}) de tu cuenta. ¿Deseas continuar?`,
+        ? `Este componente tiene ${activeLoans.length} préstamo(s) pendiente(s) y ${comp.quantity} unidad(es) en stock. Si lo eliminas, cuando te devuelvan el préstamo se reincorporará automáticamente a "${invMeta.name}".`
+        : hasStock
+        ? `Actualmente tienes ${comp.quantity} unidad(es) registradas en "${invMeta.name}" (${comp.category} · ${comp.location}). Elige cómo proceder:`
+        : `Se eliminará este componente (0 unidades en ${comp.location}) de tu cuenta. ¿Deseas continuar?`,
     confirmText: "Sí, eliminar componente",
-    onConfirm: async () => {
-      // Antes de eliminar el componente, respaldar sus metadatos exactos en cualquier préstamo pendiente
-      if (activeLoans.length > 0) {
-        await supabase
-          .from("loans")
-          .update({
-            component_title: comp.name,
-            component_model: comp.model,
-            component_category: comp.category,
-            category_icon: catMeta.icon || "📦",
-            category_color: catMeta.color || "blue",
-            component_location: comp.location,
-            component_notes: comp.notes || "",
-            inventory_name: invMeta.name,
-            inventory_icon: invMeta.icon || "📦"
-          })
-          .eq("component_id", comp.id)
-          .eq("status", "Pendiente");
-
-        for (const l of activeLoans) {
-          l.componentTitle = comp.name;
-          l.componentModel = comp.model;
-          l.componentCategory = comp.category;
-          l.categoryIcon = catMeta.icon || "📦";
-          l.categoryColor = catMeta.color || "blue";
-          l.componentLocation = comp.location;
-          l.componentNotes = comp.notes || "";
-          l.inventoryName = invMeta.name;
-          l.inventoryIcon = invMeta.icon || "📦";
+    optionsHtml,
+    onSetupOptions: (optionsEl, acceptBtn) => {
+      const updateBtnStyle = () => {
+        const action =
+          optionsEl.querySelector('input[name="del-comp-action"]:checked')?.value || "delete";
+        if (action === "move") {
+          acceptBtn.textContent = "Pasar a otro lugar";
+          acceptBtn.className =
+            "px-3.5 py-1.5 text-xs font-semibold bg-notion-blue hover:bg-notion-blue-hover text-white rounded cursor-pointer";
+        } else if (action === "otros") {
+          acceptBtn.textContent = 'Dejar en "📦 Otros"';
+          acceptBtn.className =
+            "px-3.5 py-1.5 text-xs font-semibold bg-notion-blue hover:bg-notion-blue-hover text-white rounded cursor-pointer";
+        } else {
+          acceptBtn.textContent = "Sí, eliminar también";
+          acceptBtn.className =
+            "px-3.5 py-1.5 text-xs font-semibold bg-[#E03E3E] hover:bg-[#c53030] text-white rounded cursor-pointer";
         }
+      };
+      optionsEl.querySelectorAll('input[name="del-comp-action"]').forEach((radio) => {
+        radio.addEventListener("change", updateBtnStyle);
+      });
+      optionsEl
+        .querySelectorAll("#del-comp-target-cat, #del-comp-target-inv")
+        .forEach((selectEl) => {
+          selectEl.addEventListener("focus", () => {
+            const moveRadio = optionsEl.querySelector(
+              'input[name="del-comp-action"][value="move"]'
+            );
+            if (moveRadio) {
+              moveRadio.checked = true;
+              updateBtnStyle();
+            }
+          });
+        });
+      updateBtnStyle();
+    },
+    onConfirm: async () => {
+      const selectedAction = hasStock
+        ? document.querySelector('input[name="del-comp-action"]:checked')?.value || "delete"
+        : "delete";
+
+      if (selectedAction === "move") {
+        const targetCat =
+          document.getElementById("del-comp-target-cat")?.value || comp.category;
+        const targetInvId =
+          document.getElementById("del-comp-target-inv")?.value || comp.inventoryId;
+        const targetInv = getInventoryById(targetInvId) || invMeta;
+
+        const { error } = await supabase
+          .from("components")
+          .update({ category: targetCat, inventory_id: targetInvId })
+          .eq("id", comp.id);
+
+        if (error) {
+          showToast("No se pudo mover el componente", "⚠️");
+          return;
+        }
+
+        comp.category = targetCat;
+        comp.inventoryId = targetInvId;
+        state.activeInventoryId = targetInvId;
+        closeDrawer();
+        renderAll();
+        showToast(
+          `${comp.name} (${comp.quantity} uds) pasado a ${targetCat} · ${targetInv.name}`,
+          "📦"
+        );
+        return;
       }
+
+      if (selectedAction === "otros") {
+        const otrosCat = await ensureOtrosCategory();
+        const { error } = await supabase
+          .from("components")
+          .update({ category: otrosCat.name })
+          .eq("id", comp.id);
+
+        if (error) {
+          showToast('No se pudo mover el componente a "Otros"', "⚠️");
+          return;
+        }
+
+        comp.category = otrosCat.name;
+        closeDrawer();
+        renderAll();
+        showToast(`${comp.name} (${comp.quantity} uds) dejado en "📦 Otros"`, "📦");
+        return;
+      }
+
+      await backupPendingLoansForComponents([comp]);
 
       const { error } = await supabase.from("components").delete().eq("id", compId);
       if (error) {
@@ -1662,21 +1871,110 @@ function promptDeleteInventory(invId) {
   const inv = state.inventories.find((i) => i.id === invId);
   if (!inv || inv.isDefault) return;
 
-  const compCount = getInventoryComponents(inv.id).length;
+  const compsInInv = getInventoryComponents(inv.id);
+  const compCount = compsInInv.length;
+  const totalUnits = compsInInv.reduce((sum, c) => sum + Number(c.quantity || 0), 0);
+  const otherInventories = state.inventories.filter((i) => i.id !== inv.id);
+  const defaultInv = getDefaultInventory() || otherInventories[0];
+
+  const optionsHtml =
+    compCount > 0
+      ? `
+      <div class="rounded-lg border border-notion-border bg-notion-sidebar/60 p-3 space-y-2.5 text-xs">
+        <p class="font-semibold text-notion-text">
+          ¿Qué deseas hacer con los <span class="font-mono font-bold">${compCount}</span> componente(s) (${totalUnits} uds) de "${escapeHtml(inv.name)}"?
+        </p>
+
+        <label class="flex items-start gap-2 p-2 rounded border border-notion-border bg-white cursor-pointer hover:border-notion-blue">
+          <input type="radio" name="del-inv-action" value="move" checked class="mt-0.5 text-notion-blue focus:ring-notion-blue" />
+          <div class="flex-1 space-y-1.5">
+            <div class="font-semibold text-notion-text">1. Pasarlos a otro inventario</div>
+            <select id="del-inv-target-inv" class="w-full text-[11px] py-1 px-2 border border-notion-border rounded bg-notion-sidebar/60 text-notion-text">
+              ${otherInventories
+                .map(
+                  (i) =>
+                    `<option value="${escapeHtml(i.id)}" ${
+                      i.id === defaultInv?.id ? "selected" : ""
+                    }>${escapeHtml(i.icon)} ${escapeHtml(i.name)}</option>`
+                )
+                .join("")}
+            </select>
+          </div>
+        </label>
+
+        <label class="flex items-start gap-2 p-2 rounded border border-notion-border bg-white cursor-pointer hover:border-notion-blue">
+          <input type="radio" name="del-inv-action" value="otros" class="mt-0.5 text-notion-blue focus:ring-notion-blue" />
+          <div class="flex-1">
+            <div class="font-semibold text-notion-text">2. Dejarlos en "📦 Otros" (en ${escapeHtml(defaultInv?.name || "Inventario General")})</div>
+            <div class="text-[11px] text-notion-muted">Se pasarán a ${escapeHtml(defaultInv?.name || "Inventario General")} bajo la categoría "📦 Otros".</div>
+          </div>
+        </label>
+
+        <label class="flex items-start gap-2 p-2 rounded border border-notion-border bg-white cursor-pointer hover:border-[#E03E3E]">
+          <input type="radio" name="del-inv-action" value="delete" class="mt-0.5 text-[#E03E3E] focus:ring-[#E03E3E]" />
+          <div class="flex-1">
+            <div class="font-semibold text-[#E03E3E]">3. Eliminarlos también del inventario</div>
+            <div class="text-[11px] text-notion-muted">Se eliminarán el inventario y sus ${compCount} componente(s).</div>
+          </div>
+        </label>
+      </div>
+    `
+      : "";
+
   askConfirmation({
     title: `¿Eliminar el inventario "${inv.icon} ${inv.name}"?`,
     message:
       compCount > 0
-        ? `Este inventario contiene ${compCount} componente(s) registrado(s) que también se eliminarán de tu cuenta. ¿Estás seguro?`
+        ? `Este inventario contiene ${compCount} componente(s) (${totalUnits} unidades en total). Antes de eliminarlo, elige qué hacer con ellos:`
         : `Se eliminará el inventario "${inv.name}". ¿Estás seguro de continuar?`,
-    confirmText: "Sí, eliminar inventario",
+    confirmText: "Confirmar y eliminar inventario",
+    optionsHtml,
     onConfirm: async () => {
+      const action =
+        compCount > 0
+          ? document.querySelector('input[name="del-inv-action"]:checked')?.value || "move"
+          : "delete";
+      const compIds = compsInInv.map((c) => c.id);
+
+      if (compCount > 0 && action === "move") {
+        const targetInvId =
+          document.getElementById("del-inv-target-inv")?.value || defaultInv?.id;
+        if (targetInvId) {
+          await supabase
+            .from("components")
+            .update({ inventory_id: targetInvId })
+            .in("id", compIds);
+          state.components.forEach((c) => {
+            if (compIds.includes(c.id)) c.inventoryId = targetInvId;
+          });
+        }
+      } else if (compCount > 0 && action === "otros") {
+        const otrosCat = await ensureOtrosCategory();
+        const targetInvId = defaultInv?.id;
+        if (targetInvId) {
+          await supabase
+            .from("components")
+            .update({ inventory_id: targetInvId, category: otrosCat.name })
+            .in("id", compIds);
+          state.components.forEach((c) => {
+            if (compIds.includes(c.id)) {
+              c.inventoryId = targetInvId;
+              c.category = otrosCat.name;
+            }
+          });
+        }
+      } else if (compCount > 0) {
+        await backupPendingLoansForComponents(compsInInv);
+      }
+
       const { error } = await supabase.from("inventories").delete().eq("id", inv.id);
       if (error) {
         showToast("Error al eliminar el inventario", "⚠️");
         return;
       }
-      state.components = state.components.filter((c) => c.inventoryId !== inv.id);
+      if (action === "delete") {
+        state.components = state.components.filter((c) => c.inventoryId !== inv.id);
+      }
       state.inventories = state.inventories.filter((i) => i.id !== inv.id);
       if (state.activeInventoryId === inv.id) {
         state.activeInventoryId = state.inventories[0]?.id || "";
@@ -1700,38 +1998,98 @@ function promptDeleteCategory(catName) {
     (c) => c.category.toLowerCase() === cat.name.toLowerCase()
   );
   const affectedCount = compsInCat.length;
+  const totalUnits = compsInCat.reduce((sum, c) => sum + Number(c.quantity || 0), 0);
+  const otherCategories = getCategories().filter(
+    (c) => c.name.toLowerCase() !== cat.name.toLowerCase()
+  );
+
+  const optionsHtml =
+    affectedCount > 0
+      ? `
+      <div class="rounded-lg border border-notion-border bg-notion-sidebar/60 p-3 space-y-2.5 text-xs">
+        <p class="font-semibold text-notion-text">
+          En "${escapeHtml(cat.name)}" hay <span class="font-mono font-bold">${affectedCount}</span> componente(s) (<span class="font-mono font-bold">${totalUnits}</span> unidades). ¿Qué deseas hacer con ellos?
+        </p>
+
+        <label class="flex items-start gap-2 p-2 rounded border border-notion-border bg-white cursor-pointer hover:border-notion-blue">
+          <input type="radio" name="del-cat-action" value="move" checked class="mt-0.5 text-notion-blue focus:ring-notion-blue" />
+          <div class="flex-1 space-y-1.5">
+            <div class="font-semibold text-notion-text">1. Pasarlos a otro lugar (categoría o inventario)</div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+              <select id="del-cat-target-cat" class="w-full text-[11px] py-1 px-2 border border-notion-border rounded bg-notion-sidebar/60 text-notion-text">
+                ${otherCategories
+                  .map(
+                    (c) =>
+                      `<option value="${escapeHtml(c.name)}" ${
+                        c.name === "Pasivos" ? "selected" : ""
+                      }>${escapeHtml(c.icon)} ${escapeHtml(c.name)}</option>`
+                  )
+                  .join("")}
+              </select>
+              <select id="del-cat-target-inv" class="w-full text-[11px] py-1 px-2 border border-notion-border rounded bg-notion-sidebar/60 text-notion-text">
+                <option value="__keep__">Mantener en su inventario actual</option>
+                ${state.inventories
+                  .map(
+                    (inv) =>
+                      `<option value="${escapeHtml(inv.id)}">Mover a ${escapeHtml(inv.icon)} ${escapeHtml(inv.name)}</option>`
+                  )
+                  .join("")}
+              </select>
+            </div>
+          </div>
+        </label>
+
+        <label class="flex items-start gap-2 p-2 rounded border border-notion-border bg-white cursor-pointer hover:border-notion-blue">
+          <input type="radio" name="del-cat-action" value="otros" class="mt-0.5 text-notion-blue focus:ring-notion-blue" />
+          <div class="flex-1">
+            <div class="font-semibold text-notion-text">2. Dejarlos en "📦 Otros"</div>
+            <div class="text-[11px] text-notion-muted">Se moverán automáticamente a la categoría "📦 Otros" conservando todas sus unidades.</div>
+          </div>
+        </label>
+
+        <label class="flex items-start gap-2 p-2 rounded border border-notion-border bg-white cursor-pointer hover:border-[#E03E3E]">
+          <input type="radio" name="del-cat-action" value="delete" class="mt-0.5 text-[#E03E3E] focus:ring-[#E03E3E]" />
+          <div class="flex-1">
+            <div class="font-semibold text-[#E03E3E]">3. Eliminarlos también del inventario</div>
+            <div class="text-[11px] text-notion-muted">Se eliminarán la categoría y sus ${affectedCount} componente(s) (${totalUnits} unidades). Si alguno está prestado, se recuperará al devolverlo.</div>
+          </div>
+        </label>
+      </div>
+    `
+      : "";
 
   askConfirmation({
     title: `¿Eliminar la categoría "${cat.icon} ${cat.name}"?`,
     message:
       affectedCount > 0
-        ? `Hay ${affectedCount} componente(s) en "${cat.name}". Si alguno está prestado actualmente, al devolverlo se recuperará automáticamente la categoría "${cat.name}" junto con el componente.`
-        : `Se eliminará la categoría personalizada "${cat.name}". Si tienes algún componente prestado de esta categoría, se recuperará cuando lo devuelvan.`,
-    confirmText: "Sí, eliminar categoría",
-    onConfirm: async () => {
-      // 1. Asegurar que todos los préstamos pendientes de componentes en esta categoría guarden su categoría original
-      const compIdsInCat = compsInCat.map((c) => c.id);
-      if (compIdsInCat.length > 0) {
-        await supabase
-          .from("loans")
-          .update({
-            component_category: cat.name,
-            category_icon: cat.icon || "🏷️",
-            category_color: cat.color || "teal"
-          })
-          .in("component_id", compIdsInCat)
-          .eq("status", "Pendiente");
-
-        state.loans.forEach((l) => {
-          if (l.status === "Pendiente" && compIdsInCat.includes(l.componentId)) {
-            l.componentCategory = cat.name;
-            l.categoryIcon = cat.icon || "🏷️";
-            l.categoryColor = cat.color || "teal";
-          }
+        ? `Antes de eliminar la categoría "${cat.name}", elige si deseas pasar sus componentes a otro lugar, dejarlos en "Otros" o eliminarlos también:`
+        : `Se eliminará la categoría personalizada "${cat.name}". Si tienes algún componente prestado de esta categoría, se recuperará automáticamente cuando lo devuelvan.`,
+    confirmText: "Confirmar y eliminar categoría",
+    optionsHtml,
+    onSetupOptions: (optionsEl) => {
+      optionsEl
+        .querySelectorAll("#del-cat-target-cat, #del-cat-target-inv")
+        .forEach((selectEl) => {
+          selectEl.addEventListener("focus", () => {
+            const moveRadio = optionsEl.querySelector(
+              'input[name="del-cat-action"][value="move"]'
+            );
+            if (moveRadio) moveRadio.checked = true;
+          });
         });
-      }
+    },
+    onConfirm: async () => {
+      const action =
+        affectedCount > 0
+          ? document.querySelector('input[name="del-cat-action"]:checked')?.value || "move"
+          : "delete";
 
-      // 2. Separar componentes que están 100% prestados (stock 0 con préstamo activo) de los que tienen stock en taller
+      // 1. Asegurar que todos los préstamos pendientes de componentes en esta categoría guarden su categoría original y metadatos
+      await backupPendingLoansForComponents(compsInCat);
+
+      const compIdsInCat = compsInCat.map((c) => c.id);
+
+      // Componentes 100% prestados (stock 0 con préstamo activo) se retiran temporalmente para reincorporarse junto con su categoría al ser devueltos
       const fullyLoanedOutCompIds = compsInCat
         .filter((c) => c.quantity === 0 && getComponentActiveLoans(c.id).length > 0)
         .map((c) => c.id);
@@ -1740,23 +2098,66 @@ function promptDeleteCategory(catName) {
         .filter((c) => !fullyLoanedOutCompIds.includes(c.id))
         .map((c) => c.id);
 
-      // Los componentes 100% prestados se retiran temporalmente del listado activo y se reincorporarán junto con su categoría al ser devueltos
-      if (fullyLoanedOutCompIds.length > 0) {
-        await supabase.from("components").delete().in("id", fullyLoanedOutCompIds);
-        state.components = state.components.filter(
-          (c) => !fullyLoanedOutCompIds.includes(c.id)
-        );
-      }
+      let toastDetail = `Categoría "${cat.name}" eliminada`;
 
-      // Los componentes que aún tienen unidades físicas en taller pasan temporalmente a "Pasivos"
-      if (inStockCompIds.length > 0) {
-        await supabase
-          .from("components")
-          .update({ category: "Pasivos" })
-          .in("id", inStockCompIds);
-        state.components.forEach((c) => {
-          if (inStockCompIds.includes(c.id)) c.category = "Pasivos";
-        });
+      if (affectedCount > 0 && action === "delete") {
+        // Opción 3: Eliminarlos también todos
+        await supabase.from("components").delete().in("id", compIdsInCat);
+        state.components = state.components.filter((c) => !compIdsInCat.includes(c.id));
+        toastDetail = `Categoría "${cat.name}" y sus ${affectedCount} componente(s) eliminados`;
+      } else if (affectedCount > 0 && action === "otros") {
+        // Opción 2: Dejarlos en "📦 Otros"
+        if (fullyLoanedOutCompIds.length > 0) {
+          await supabase.from("components").delete().in("id", fullyLoanedOutCompIds);
+          state.components = state.components.filter(
+            (c) => !fullyLoanedOutCompIds.includes(c.id)
+          );
+        }
+        if (inStockCompIds.length > 0) {
+          const otrosCat = await ensureOtrosCategory();
+          await supabase
+            .from("components")
+            .update({ category: otrosCat.name })
+            .in("id", inStockCompIds);
+          state.components.forEach((c) => {
+            if (inStockCompIds.includes(c.id)) c.category = otrosCat.name;
+          });
+          toastDetail = `Categoría "${cat.name}" eliminada · Componentes dejados en "📦 Otros"`;
+        }
+      } else if (affectedCount > 0 && action === "move") {
+        // Opción 1: Pasarlos a otra categoría / inventario
+        const targetCat =
+          document.getElementById("del-cat-target-cat")?.value ||
+          otherCategories[0]?.name ||
+          "Pasivos";
+        const targetInv =
+          document.getElementById("del-cat-target-inv")?.value || "__keep__";
+
+        if (fullyLoanedOutCompIds.length > 0) {
+          await supabase.from("components").delete().in("id", fullyLoanedOutCompIds);
+          state.components = state.components.filter(
+            (c) => !fullyLoanedOutCompIds.includes(c.id)
+          );
+        }
+        if (inStockCompIds.length > 0) {
+          const updatePayload = { category: targetCat };
+          if (targetInv !== "__keep__") {
+            updatePayload.inventory_id = targetInv;
+          }
+          await supabase
+            .from("components")
+            .update(updatePayload)
+            .in("id", inStockCompIds);
+          state.components.forEach((c) => {
+            if (inStockCompIds.includes(c.id)) {
+              c.category = targetCat;
+              if (targetInv !== "__keep__") {
+                c.inventoryId = targetInv;
+              }
+            }
+          });
+          toastDetail = `Categoría "${cat.name}" eliminada · Componentes pasados a "${targetCat}"`;
+        }
       }
 
       await supabase
@@ -1772,7 +2173,7 @@ function promptDeleteCategory(catName) {
         state.activeCategory = "Todos";
       }
       renderAll();
-      showToast(`Categoría "${cat.name}" eliminada`, "🗑️");
+      showToast(toastDetail, "🗑️");
     }
   });
 }

@@ -1,5 +1,6 @@
 /* MecaKit — Notion-Inspired Design System & Modern Web Guidance Patterns */
 :root {
+  color-scheme: only light;
   --notion-bg: #ffffff;
   --notion-sidebar: #f7f7f5;
   --notion-hover: #efefed;
@@ -38,6 +39,15 @@ body {
   color: var(--notion-text);
   font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
+}
+
+input[type="search"]::-webkit-search-cancel-button,
+input[type="search"]::-webkit-search-decoration,
+input[type="search"]::-webkit-search-results-button,
+input[type="search"]::-webkit-search-results-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+  display: none;
 }
 
 .material-symbols-outlined {
